@@ -279,6 +279,16 @@ function PlayerStudy({
         : 30,
     );
   const combinedGoal = [...goals, goal.trim()].filter(Boolean).join("；");
+  function toggleGoal(label: string) {
+    const next = goals.includes(label)
+      ? goals.filter((g) => g !== label)
+      : [...goals.filter((g) => g !== "自由学习"), label];
+    if ([...next, goal.trim()].filter(Boolean).join("；").length > 80) {
+      toast.error("目标说明较长，请先缩短一点再添加目标");
+      return;
+    }
+    setGoals(next);
+  }
   const rewardLimit = view.rules.dailyRewardLimit ?? STUDY_REWARD_LIMIT;
   const rewardsToday = studyRewards(
     view.sessions.map((s) => studyOutcome(s, view.serverTime)),
@@ -728,96 +738,20 @@ function PlayerStudy({
 
       {phase === "intro" && (
         <>
-          <WeeklyPlanCard />
-          <section className="study-intention white-panel">
-            <div className="section-heading">
-              <div>
-                <h2>这一场，想做些什么？</h2>
-                <p>
-                  可以多选，也可以途中切换任务。投递、联系、读书、练题都算认真投入。
-                </p>
-              </div>
-            </div>
-            <div
-              className="study-goal-choices"
-              role="group"
-              aria-label="本场目标（可多选）"
-            >
-              {STUDY_GOALS.map((label) => (
-                <button
-                  type="button"
-                  key={label}
-                  aria-pressed={goals.includes(label)}
-                  onClick={() => {
-                    const next = goals.includes(label)
-                      ? goals.filter((g) => g !== label)
-                      : [...goals.filter((g) => g !== "自由学习"), label];
-                    if (
-                      [...next, goal.trim()].filter(Boolean).join("；").length >
-                      80
-                    ) {
-                      toast.error("目标说明较长，请先缩短一点再添加目标");
-                      return;
-                    }
-                    setGoals(next);
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            {goals.includes("Networking") && <NetworkingLink />}
-            <label className="goal-field">
-              <span>
-                给这场补一句目标 <small>可选</small>
-              </span>
-              <input
-                value={goal}
-                onChange={(e) => setGoal(e.target.value)}
-                maxLength={Math.max(
-                  0,
-                  80 - goals.join("；").length - (goals.length ? 1 : 0),
-                )}
-                placeholder="例如：投两份岗位，再复盘项目；途中可以灵活调整"
-              />
-            </label>
-            <fieldset className="duration-options">
-              <legend>想投入多久？</legend>
-              <div className="duration-choices">
-                {minuteChoices().map((m) => (
-                  <label key={m} className={m === minutes ? "selected" : ""}>
-                    <input
-                      type="radio"
-                      name="study-duration"
-                      value={m}
-                      checked={m === minutes}
-                      onChange={() => setMinutes(m)}
-                    />
-                    <strong>
-                      {m}
-                      <small> 分钟</small>
-                    </strong>
-                    <span>
-                      {rewardRemaining
-                        ? `+${studyPoints(view.rules, m)} 积分`
-                        : "继续学习 · 本场不加分"}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <p className="study-reward-budget">
-              今天还有{" "}
-              <b>
-                {rewardRemaining} / {rewardLimit}
-              </b>{" "}
-              次奖励名额 · 三种时长合计。
-              {rewardRemaining
-                ? "通过后占用名额，当天最低目标完成后积分到账。"
-                : "今日奖励名额已用完，仍可继续学习并留下记录。"}
-            </p>
-          </section>
-          <Intro view={view} minutes={minutes} onStart={begin}>
+          <Intro
+            view={view}
+            setup={{
+              goals,
+              goal,
+              minutes,
+              rewardRemaining,
+              rewardLimit,
+              toggleGoal,
+              setGoal,
+              setMinutes,
+            }}
+            onStart={begin}
+          >
             <Switch
               checked={aiOn}
               disabled={!view.ai}
@@ -857,6 +791,7 @@ function PlayerStudy({
               note="教练来后门时敲两下，戴着耳机也能听见。"
             />
           </Intro>
+          <WeeklyPlanCard />
           <SessionList view={view} onPoster={setPosterId} />
           <DeleteSnapshots view={view} post={post} />
           {posterId && posterSession && (
@@ -1097,11 +1032,6 @@ const gap = (r: StudyRules) =>
   r.minGap === r.maxGap
     ? `每 ${r.minGap} 分钟`
     : `${r.minGap}–${r.maxGap} 分钟之间随机`;
-function boardNote(r: StudyRules) {
-  return r.strict
-    ? `教练会${gap(r)}来后门查岗。${r.maxStrikes} 次违规就算失败。`
-    : `教练会${gap(r)}来后门看看你。只在特别明显走神时提醒，累计 ${r.maxStrikes * r.warningsPerStrike} 次提醒才算失败。`;
-}
 function gentleSignals(r: StudyRules) {
   return [
     `离开镜头超过 ${duration(r.absentSeconds)}`,
@@ -1124,22 +1054,39 @@ function strictReminders(r: StudyRules) {
     .join("；")
     .concat(`。${r.warningsPerStrike} 次提醒算 1 次违规。`);
 }
+type Setup = {
+  goals: string[];
+  goal: string;
+  minutes: number;
+  rewardRemaining: number;
+  rewardLimit: number;
+  toggleGoal: (label: string) => void;
+  setGoal: (text: string) => void;
+  setMinutes: (minutes: number) => void;
+};
 function Intro({
   view,
-  minutes,
+  setup,
   onStart,
   children,
 }: {
   view: StudyView;
-  minutes: number;
+  setup: Setup;
   onStart: () => void;
   children: ReactNode;
 }) {
-  const r = view.rules;
+  const r = view.rules,
+    { goals, goal, minutes, rewardRemaining, rewardLimit } = setup;
+  // The server caps the goal at 80 characters, chips and the extra line together.
+  const room = Math.max(
+    0,
+    80 - goals.join("；").length - (goals.length ? 1 : 0),
+  );
   return (
     <>
       <section className="study-hero">
-        <div className="study-board">
+        {/* Tonight's plan is written on the board itself: what, one more line, and how long. */}
+        <div className="study-board setup">
           <div className="board-top">
             <span>晚自习 · 距下课还有</span>
             <StrikeMarks used={0} max={r.maxStrikes} />
@@ -1147,7 +1094,59 @@ function Intro({
           <div className="board-clock">
             {String(minutes).padStart(2, "0")}:00
           </div>
-          <p className="board-note">{boardNote(r)}</p>
+          <div
+            className="chalk-row"
+            role="group"
+            aria-label="这场做什么，可以多选"
+          >
+            <span className="chalk-label">今晚做</span>
+            {STUDY_GOALS.map((label) => (
+              <button
+                key={label}
+                type="button"
+                className={`chalk-chip ${goals.includes(label) ? "on" : ""}`}
+                aria-pressed={goals.includes(label)}
+                onClick={() => setup.toggleGoal(label)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <input
+            className="chalk-line"
+            value={goal}
+            onChange={(e) => setup.setGoal(e.target.value)}
+            maxLength={room}
+            placeholder="再补一句，比如：投两份岗位，再复盘项目（可选）"
+            aria-label="补一句目标"
+          />
+          <div className="chalk-row durations" role="radiogroup" aria-label="学多久">
+            <span className="chalk-label">学多久</span>
+            {minuteChoices().map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="radio"
+                aria-checked={m === minutes}
+                className={`chalk-num ${m === minutes ? "on" : ""}`}
+                onClick={() => setup.setMinutes(m)}
+              >
+                {m}
+              </button>
+            ))}
+            <span className="chalk-unit">分钟</span>
+            <span className="chalk-reward">
+              {rewardRemaining
+                ? `通过 +${studyPoints(r, minutes)} 积分`
+                : "今天的奖励名额用完了，这场不加分"}
+            </span>
+          </div>
+          <div className="board-foot">
+            <span>
+              今天还有 {rewardRemaining} / {rewardLimit} 次奖励名额
+            </span>
+            <span>教练会{gap(r)}来后门看看你</span>
+          </div>
         </div>
         <div className="hero-door">
           <Door view={view} still="calm" />
@@ -1197,6 +1196,7 @@ function Intro({
         <section className="white-panel study-options">
           <h2>这次怎么检查</h2>
           {children}
+          {goals.includes("Networking") && <NetworkingLink />}
           <button className="button primary full" onClick={onStart}>
             准备开始 {minutes} 分钟
           </button>
