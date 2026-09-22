@@ -1,0 +1,146 @@
+[
+  {
+    "id": "bq-01",
+    "category": "BQ",
+    "difficulty": "Medium",
+    "prompt": "Tell me about a time you turned an ambiguous request into a measurable data-science problem.",
+    "rubric": [
+      "Set the situation and uncertainty",
+      "Describe your responsibility",
+      "Explain clarification and prioritization actions",
+      "State a measurable result and learning"
+    ]
+  },
+  {
+    "id": "bq-02",
+    "category": "BQ",
+    "difficulty": "Medium",
+    "prompt": "Tell me about a time your analysis changed a stakeholder's decision.",
+    "rubric": [
+      "Explain the original decision",
+      "Describe your analysis and personal contribution",
+      "Explain how you communicated uncertainty",
+      "Describe the decision and resulting impact"
+    ]
+  },
+  {
+    "id": "bq-03",
+    "category": "BQ",
+    "difficulty": "Medium",
+    "prompt": "Describe a time a model or analysis you built did not work as expected.",
+    "rubric": [
+      "Describe the expectation and failure",
+      "Own your specific responsibility",
+      "Explain diagnosis and corrective actions",
+      "Share the result and what changed afterward"
+    ]
+  },
+  {
+    "id": "bq-04",
+    "category": "BQ",
+    "difficulty": "Hard",
+    "prompt": "Tell me about a time you disagreed with a teammate on a technical approach.",
+    "rubric": [
+      "Explain the disagreement and stakes",
+      "Show how you listened and compared evidence",
+      "Describe your actions toward resolution",
+      "State the outcome and relationship learning"
+    ]
+  },
+  {
+    "id": "bq-05",
+    "category": "BQ",
+    "difficulty": "Medium",
+    "prompt": "Describe a time you had to deliver under a tight deadline.",
+    "rubric": [
+      "Set scope and time constraints",
+      "Explain your prioritization",
+      "Describe tradeoffs and communication",
+      "State the outcome and what you would improve"
+    ]
+  },
+  {
+    "id": "bq-06",
+    "category": "BQ",
+    "difficulty": "Medium",
+    "prompt": "Tell me about a time you discovered a data-quality issue that others had missed.",
+    "rubric": [
+      "Explain the issue and its risk",
+      "Describe how you detected and validated it",
+      "Explain your fix and stakeholder communication",
+      "Quantify impact or prevention"
+    ]
+  },
+  {
+    "id": "bq-07",
+    "category": "BQ",
+    "difficulty": "Medium",
+    "prompt": "Describe a time you influenced someone without formal authority.",
+    "rubric": [
+      "Explain the goal and relationship",
+      "Describe your specific influence strategy",
+      "Show how you responded to concerns",
+      "State the outcome and learning"
+    ]
+  },
+  {
+    "id": "bq-08",
+    "category": "BQ",
+    "difficulty": "Hard",
+    "prompt": "Tell me about a time you explained a complex result to a nontechnical audience.",
+    "rubric": [
+      "Describe the audience and decision",
+      "Explain how you adapted the explanation",
+      "Show how you checked understanding",
+      "Describe the action or outcome"
+    ]
+  },
+  {
+    "id": "bq-09",
+    "category": "BQ",
+    "difficulty": "Medium",
+    "prompt": "Describe a time you received difficult feedback and acted on it.",
+    "rubric": [
+      "Explain the feedback in context",
+      "Describe your initial response and ownership",
+      "Identify concrete changes you made",
+      "Show evidence of improvement"
+    ]
+  },
+  {
+    "id": "bq-10",
+    "category": "BQ",
+    "difficulty": "Medium",
+    "prompt": "Tell me about a time you balanced rigor with a practical business need.",
+    "rubric": [
+      "Describe the business constraint",
+      "Explain risks and acceptable uncertainty",
+      "Describe your chosen approach and safeguards",
+      "State the outcome and tradeoff learning"
+    ]
+  },
+  {
+    "id": "bq-11",
+    "category": "BQ",
+    "difficulty": "Medium",
+    "prompt": "Describe a time you took initiative outside your assigned responsibilities.",
+    "rubric": [
+      "Explain the opportunity you noticed",
+      "Clarify your own actions and collaboration",
+      "Describe how you managed scope and risk",
+      "State the resulting impact"
+    ]
+  },
+  {
+    "id": "bq-12",
+    "category": "BQ",
+    "difficulty": "Hard",
+    "prompt": "Tell me about a time you would approach differently today.",
+    "rubric": [
+      "Set a specific situation and your role",
+      "Describe the choices you made",
+      "Explain the outcome honestly",
+      "Give a concrete alternative grounded in learning"
+    ]
+  }
+]

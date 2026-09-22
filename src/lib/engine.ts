@@ -1,0 +1,401 @@
+import { Temporal } from "@js-temporal/polyfill";
+import type {
+  Answer,
+  BqTask,
+  Category,
+  Day,
+  GameState,
+  Project,
+  Question,
+  Settings,
+  Summary,
+} from "./types";
+
+export const DEFAULT_SETTINGS: Settings = {
+  timezone: "America/New_York",
+  closeHour: 0,
+  applications: 3,
+  contacts: 20,
+  bonusApplications: 5,
+  bonusContacts: 30,
+  basePoints: 100,
+  bonusPoints: 25,
+  penaltyAmount: 10,
+  penaltyThreshold: 50,
+  schedule: ["AI/LLM", "ML", "AI/LLM", "SQL", "ML", "Project", "Alternate"],
+  rewards: [
+    { streak: 7, text: "一杯喜欢的饮料，裁判请客！" },
+    { streak: 14, text: "一起看一场想看的电影" },
+    { streak: 21, text: "解锁一顿庆祝大餐！" },
+  ],
+};
+
+export function addDays(date: string, n: number) {
+  return Temporal.PlainDate.from(date).add({ days: n }).toString();
+}
+export function dayKey(now: string, settings: Settings): string {
+  const local = Temporal.Instant.from(now).toZonedDateTimeISO(
+    settings.timezone,
+  );
+  return local
+    .toPlainDate()
+    .subtract({ days: local.hour < settings.closeHour ? 1 : 0 })
+    .toString();
+}
+export function closeTime(date: string, settings: Settings): string {
+  return Temporal.PlainDate.from(date)
+    .add({ days: 1 })
+    .toZonedDateTime({
+      timeZone: settings.timezone,
+      plainTime: `${String(settings.closeHour).padStart(2, "0")}:00`,
+    })
+    .toInstant()
+    .toString();
+}
+export function weekKey(date: string): string {
+  const d = Temporal.PlainDate.from(date);
+  return d.subtract({ days: d.dayOfWeek - 1 }).toString();
+}
+export function categoryFor(date: string, settings: Settings): Category {
+  const weekday = Temporal.PlainDate.from(date).dayOfWeek % 7;
+  const category = settings.schedule[weekday];
+  if (category !== "Alternate") return category;
+  const weeks = Math.floor(
+    Temporal.PlainDate.from("2026-01-05").until(
+      Temporal.PlainDate.from(weekKey(date)),
+    ).days / 7,
+  );
+  return Math.abs(weeks % 2) === 0 ? "SQL" : "Python";
+}
+export function finalScore(answer?: Answer): number | null {
+  return answer?.override?.score ?? answer?.grade.score ?? null;
+}
+export function latestAnswer(day: Day): Answer | undefined {
+  return day.answers.at(-1);
+}
+export function bqDone(bq: BqTask | null): boolean {
+  return (
+    !bq ||
+    Boolean(
+      bq.completedAt &&
+      (bq.stage === 1 ? bq.text.trim().length >= 40 : bq.practiced),
+    )
+  );
+}
+export function completedBq(
+  state: GameState,
+  before = "9999-12-31",
+): Map<string, { draft?: Day; practice?: Day }> {
+  const progress = new Map<string, { draft?: Day; practice?: Day }>();
+  for (const day of Object.values(state.days).sort((a, b) =>
+    a.date.localeCompare(b.date),
+  )) {
+    if (day.date >= before || !day.bq || !bqDone(day.bq)) continue;
+    const p = progress.get(day.bq.questionId) ?? {};
+    if (day.bq.stage === 1) p.draft ??= day;
+    else if (p.draft && p.draft.date < day.date) p.practice ??= day;
+    progress.set(day.bq.questionId, p);
+  }
+  return progress;
+}
+export function nextBq(
+  state: GameState,
+  date: string,
+  bank: Question[],
+): BqTask | null {
+  const progress = completedBq(state, date);
+  for (const q of bank.filter((q) => q.category === "BQ")) {
+    const p = progress.get(q.id);
+    if (p?.practice) continue;
+    return {
+      questionId: q.id,
+      stage: p?.draft ? 2 : 1,
+      text: p?.draft?.bq?.text ?? "",
+      practiced: false,
+    };
+  }
+  return null;
+}
+
+const probes = [
+  [
+    'Why did you choose {methods} for "{title}"? Compare it with two plausible alternatives and explain which constraint changed your decision.',
+    [
+      "Link the choice to the project objective",
+      "Compare two concrete alternatives",
+      "Name data or operational constraints",
+      "Discuss an experiment that could reverse the choice",
+    ],
+  ],
+  [
+    'In "{title}", your role was: {role}. Walk through one decision you personally owned, what others contributed, and how you verified your work.',
+    [
+      "Separate personal ownership from team work",
+      "Explain a concrete decision",
+      "Describe validation and review",
+      "Reflect on a tradeoff",
+    ],
+  ],
+  [
+    'For "{title}", you reported: {metrics}. How was impact measured, and how would you rule out a misleading improvement?',
+    [
+      "Define metric, baseline, and denominator",
+      "Explain measurement design",
+      "Address confounding and uncertainty",
+      "Connect impact to users or a business outcome",
+    ],
+  ],
+  [
+    'Imagine "{title}" fails for a new user segment. Using your project context ({summary}), explain your diagnosis, mitigation, and monitoring plan.',
+    [
+      "Identify plausible distribution changes",
+      "Slice errors by segment",
+      "Propose a safe mitigation",
+      "Define monitoring and rollback criteria",
+    ],
+  ],
+  [
+    'If you rebuilt "{title}" with half the time, what would you change about {methods}, what would you keep, and what evidence supports that prioritization?',
+    [
+      "Identify the highest value component",
+      "Describe a simpler baseline",
+      "Explain quality versus delivery tradeoffs",
+      "Propose a measurable next experiment",
+    ],
+  ],
+] as const;
+export function projectQuestion(project: Project, sequence: number): Question {
+  const probe = probes[sequence % probes.length];
+  const prompt = probe[0].replace(
+    /\{(title|methods|role|metrics|summary)\}/g,
+    (_, key: keyof Project) => project[key],
+  );
+  return {
+    id: `project-${project.id}-${sequence}`,
+    category: "Project",
+    difficulty: "Hard",
+    prompt,
+    rubric: [...probe[1]],
+  };
+}
+export function selectQuestion(
+  state: GameState,
+  date: string,
+  bank: Question[],
+  settings: Settings,
+): Question | null {
+  const category = categoryFor(date, settings);
+  const history = Object.values(state.days)
+    .filter((d) => d.date < date && d.question?.category === category)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (category === "Project") {
+    if (!state.projects.length) return null;
+    return projectQuestion(
+      state.projects[history.length % state.projects.length],
+      Math.floor(history.length / state.projects.length),
+    );
+  }
+  const pool = bank.filter((q) => q.category === category);
+  if (!pool.length) throw new Error(`Missing question category: ${category}`);
+  // Every assignment counts, including missed days. Reset only when the entire pool was assigned.
+  const used = new Set<string>();
+  for (const d of history) {
+    used.add(d.question!.id);
+    if (pool.every((q) => used.has(q.id))) used.clear();
+  }
+  const last = new Map(history.map((d) => [d.question!.id, d]));
+  const candidates = pool.filter((q) => !used.has(q.id));
+  candidates.sort((a, b) => {
+    const da = last.get(a.id),
+      db = last.get(b.id);
+    const priority = (d?: Day) =>
+      !d
+        ? 0
+        : (finalScore(latestAnswer(d)) ?? 0) < 3 && d.date <= addDays(date, -7)
+          ? 1
+          : 2;
+    return (
+      priority(da) - priority(db) ||
+      (da?.date ?? "").localeCompare(db?.date ?? "") ||
+      a.id.localeCompare(b.id)
+    );
+  });
+  return structuredClone(candidates[0]);
+}
+function createDay(
+  state: GameState,
+  date: string,
+  bank: Question[],
+  settings: Settings,
+): Day {
+  return {
+    date,
+    closesAt: closeTime(date, settings),
+    settings: structuredClone(settings),
+    applications: 0,
+    contacts: 0,
+    logs: [],
+    answers: [],
+    question: selectQuestion(state, date, bank, settings),
+    bq: nextBq(state, date, bank),
+  };
+}
+export function newGame(now: string, bank: Question[]): GameState {
+  const settings = structuredClone(DEFAULT_SETTINGS),
+    date = dayKey(now, settings);
+  const state: GameState = {
+    version: 1,
+    startedOn: date,
+    settings,
+    days: {},
+    projects: [],
+    redemptions: [],
+    audit: [],
+  };
+  state.days[date] = createDay(state, date, bank, settings);
+  return state;
+}
+/** Mutates only the loaded copy. The repository commits using atomic compare-and-swap. */
+export function advance(
+  state: GameState,
+  now: string,
+  bank: Question[],
+): string {
+  let day = Object.values(state.days).sort((a, b) =>
+    b.date.localeCompare(a.date),
+  )[0];
+  let count = 0;
+  while (Temporal.Instant.compare(now, day.closesAt) >= 0) {
+    if (++count > 3660) throw new Error("超过十年的数据需要管理员迁移");
+    if (state.nextSettings) {
+      state.settings = state.nextSettings;
+      delete state.nextSettings;
+    }
+    const date = addDays(day.date, 1);
+    state.days[date] = createDay(state, date, bank, state.settings);
+    day = state.days[date];
+  }
+  // Adding the first project unlocks today's stable question, without changing existing questions.
+  if (
+    !day.question &&
+    categoryFor(day.date, day.settings) === "Project" &&
+    state.projects.length
+  ) {
+    day.question = selectQuestion(state, day.date, bank, day.settings);
+  }
+  return day.date;
+}
+export function requirements(day: Day) {
+  const s = day.settings;
+  const checks = [
+    day.applications >= s.applications,
+    day.contacts >= s.contacts,
+    (finalScore(latestAnswer(day)) ?? 0) >= 3,
+  ];
+  if (day.bq) checks.push(bqDone(day.bq));
+  return {
+    completed: checks.filter(Boolean).length,
+    required: checks.length,
+    met: checks.every(Boolean),
+  };
+}
+export function evaluate(state: GameState, now: string): Summary {
+  let streak = 0,
+    bestStreak = 0,
+    points = 0,
+    freezes = 0,
+    penalties = 0,
+    lastWeek = "",
+    blocked = false;
+  const rewards: Summary["rewards"] = [],
+    days: Summary["days"] = [];
+  const retellWeeks = new Set<string>();
+  for (const day of Object.values(state.days).sort((a, b) =>
+    a.date.localeCompare(b.date),
+  )) {
+    const week = weekKey(day.date),
+      closed = Temporal.Instant.compare(now, day.closesAt) >= 0;
+    const req = requirements(day),
+      answer = latestAnswer(day);
+    let status: Summary["days"][number]["status"] = "open",
+      earned = 0,
+      penalty = 0;
+    if (blocked) status = "waiting";
+    else {
+      if (week !== lastWeek) {
+        freezes = Math.min(2, freezes + 1);
+        lastWeek = week;
+      }
+      if (req.met) {
+        const bonus =
+          Number(day.applications >= day.settings.bonusApplications) +
+          Number(day.contacts >= day.settings.bonusContacts);
+        const retell =
+          day.retell?.practiced &&
+          !retellWeeks.has(week) &&
+          completedBq(state, day.date).size === 12 &&
+          [...completedBq(state, day.date).values()].every((p) => p.practice);
+        if (retell) retellWeeks.add(week);
+        earned =
+          day.settings.basePoints +
+          (bonus + Number(Boolean(retell))) * day.settings.bonusPoints;
+        status = bonus || retell ? "gold" : "met";
+        streak += 1;
+        for (const reward of day.settings.rewards) {
+          if (
+            streak === reward.streak &&
+            !rewards.some((r) => r.streak === reward.streak)
+          )
+            rewards.push({
+              ...reward,
+              id: `${day.date}-${reward.streak}`,
+              date: day.date,
+            });
+        }
+      } else if (closed) {
+        // Only defer a penalty when a review can actually change this day's outcome.
+        const otherMet =
+          day.applications >= day.settings.applications &&
+          day.contacts >= day.settings.contacts &&
+          bqDone(day.bq);
+        if (answer && finalScore(answer) === null && otherMet) {
+          status = "pending";
+          blocked = true;
+        } else if (freezes > 0) {
+          freezes--;
+          status = "frozen";
+        } else {
+          streak = 0;
+          penalty = day.settings.penaltyAmount;
+          status = "missed";
+        }
+      }
+    }
+    points += earned;
+    penalties += penalty;
+    bestStreak = Math.max(bestStreak, streak);
+    days.push({
+      date: day.date,
+      status,
+      points: earned,
+      streak,
+      freezes,
+      penalty,
+      ...req,
+    });
+  }
+  return {
+    days,
+    streak,
+    bestStreak,
+    points,
+    freezes,
+    pool: Math.max(
+      0,
+      penalties - state.redemptions.reduce((sum, r) => sum + r.amount, 0),
+    ),
+    rewards,
+    bqCompleted: [...completedBq(state).values()].filter((p) => p.practice)
+      .length,
+  };
+}

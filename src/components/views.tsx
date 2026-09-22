@@ -1,0 +1,1167 @@
+"use client";
+import Link from "next/link";
+import { useState } from "react";
+import {
+  CalendarDays,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Flame,
+  FolderOpen,
+  Gift,
+  LockKeyhole,
+  Pencil,
+  Plus,
+  ShieldCheck,
+  Snowflake,
+  Star,
+  Target,
+  TrendingUp,
+  X,
+} from "lucide-react";
+import {
+  addDays,
+  completedBq,
+  finalScore,
+  latestAnswer,
+  requirements,
+} from "@/lib/engine";
+import type { DayStatus, Project, Question, Settings } from "@/lib/types";
+import data from "../../data/bq.json";
+import { useGame } from "./provider";
+import { Modal, Progress, SectionHeading, Status, statusLabel } from "./ui";
+function PageTitle({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className="page-title">
+      <div>
+        <p className="date-line">{subtitle}</p>
+        <h1>
+          {title}
+          <span className="title-dot" />
+        </h1>
+      </div>
+    </div>
+  );
+}
+export function History() {
+  const { snapshot } = useGame(),
+    [month, setMonth] = useState(snapshot.today.slice(0, 7)),
+    [selected, setSelected] = useState<string | null>(null);
+  const date = new Date(`${month}-01T12:00:00Z`),
+    offset = (date.getUTCDay() + 6) % 7,
+    count = new Date(
+      date.getUTCFullYear(),
+      date.getUTCMonth() + 1,
+      0,
+    ).getDate();
+  function move(n: number) {
+    const d = new Date(date);
+    d.setUTCMonth(d.getUTCMonth() + n);
+    setMonth(d.toISOString().slice(0, 7));
+  }
+  const results = snapshot.summary.days.filter((d) => d.date.startsWith(month));
+  return (
+    <>
+      <PageTitle title="每一步，都有迹可循" subtitle="打卡日历" />
+      <div className="history-layout">
+        <section className="calendar-panel">
+          <div className="calendar-heading">
+            <h2>
+              {date.getUTCFullYear()} 年 {date.getUTCMonth() + 1} 月
+            </h2>
+            <div>
+              <button
+                className="icon-button"
+                onClick={() => move(-1)}
+                aria-label="上个月"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <button
+                className="text-button"
+                onClick={() => setMonth(snapshot.today.slice(0, 7))}
+              >
+                本月
+              </button>
+              <button
+                className="icon-button"
+                onClick={() => move(1)}
+                disabled={month >= snapshot.today.slice(0, 7)}
+                aria-label="下个月"
+              >
+                <ChevronRight size={20} />
+              </button>
+            </div>
+          </div>
+          <div className="calendar-weekdays">
+            {["一", "二", "三", "四", "五", "六", "日"].map((w) => (
+              <span key={w}>周{w}</span>
+            ))}
+          </div>
+          <div className="calendar-grid">
+            {Array.from({ length: offset }, (_, i) => (
+              <div key={`empty-${i}`} />
+            ))}
+            {Array.from({ length: count }, (_, i) => {
+              const key = `${month}-${String(i + 1).padStart(2, "0")}`,
+                result = snapshot.summary.days.find((d) => d.date === key),
+                active = key === snapshot.today;
+              return (
+                <button
+                  disabled={!result}
+                  onClick={() => setSelected(key)}
+                  key={key}
+                  className={`calendar-day ${result?.status || ""} ${active ? "today" : ""}`}
+                  aria-label={`${key} ${result ? statusLabel[result.status] : "无记录"}`}
+                >
+                  <strong>{i + 1}</strong>
+                  {result ? (
+                    <>
+                      <span>
+                        {result.status === "frozen" ? (
+                          <Snowflake size={18} />
+                        ) : result.status === "met" ||
+                          result.status === "gold" ? (
+                          <Check size={18} />
+                        ) : result.status === "missed" ? (
+                          <X size={18} />
+                        ) : (
+                          <Clock3 size={16} />
+                        )}
+                      </span>
+                      <small>{statusLabel[result.status]}</small>
+                    </>
+                  ) : (
+                    <span className="no-record">—</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <div className="calendar-legend">
+            {(
+              ["met", "gold", "missed", "frozen", "pending"] as DayStatus[]
+            ).map((s) => (
+              <Status key={s} status={s} />
+            ))}
+          </div>
+        </section>
+        <aside className="history-aside">
+          <div className="month-summary">
+            <CalendarDays size={27} />
+            <h2>这个月的积累</h2>
+            <div>
+              <span>成功打卡</span>
+              <strong>
+                {
+                  results.filter((d) => ["met", "gold"].includes(d.status))
+                    .length
+                }
+                <small> 天</small>
+              </strong>
+            </div>
+            <div>
+              <span>获得积分</span>
+              <strong>{results.reduce((sum, d) => sum + d.points, 0)}</strong>
+            </div>
+            <div>
+              <span>冻结保护</span>
+              <strong>
+                {results.filter((d) => d.status === "frozen").length}
+                <small> 次</small>
+              </strong>
+            </div>
+          </div>
+          <p className="muted">
+            点击有记录的日期，查看当日任务、答案与评审。待审核的日期会保留结果，等裁判决定后再计算连胜。
+          </p>
+        </aside>
+      </div>
+      {selected && (
+        <DayDetail date={selected} close={() => setSelected(null)} />
+      )}
+    </>
+  );
+}
+export function DayDetail({
+  date,
+  close,
+}: {
+  date: string;
+  close: () => void;
+}) {
+  const { snapshot } = useGame(),
+    day = snapshot.state.days[date],
+    result = snapshot.summary.days.find((d) => d.date === date)!;
+  const bq = (data as Question[]).find((q) => q.id === day.bq?.questionId);
+  return (
+    <Modal title={`${date} 的训练记录`} close={close} className="day-detail">
+      <div className="day-detail-status">
+        <Status status={result.status} />
+        <span>
+          +{result.points} 积分 · 连胜 {result.streak} 天
+        </span>
+      </div>
+      <div className="day-detail-counts">
+        <div>
+          申请
+          <strong>
+            {day.applications} / {day.settings.applications}
+          </strong>
+        </div>
+        <div>
+          联系人
+          <strong>
+            {day.contacts} / {day.settings.contacts}
+          </strong>
+        </div>
+        <div>
+          BQ
+          <strong>
+            {!day.bq ? "全部毕业" : day.bq.completedAt ? "已完成" : "未完成"}
+          </strong>
+        </div>
+      </div>
+      <h3>
+        面试题 <span className="muted">{day.question?.category}</span>
+      </h3>
+      <p className="english-question" lang="en">
+        {day.question?.prompt || "当天尚未录入项目"}
+      </p>
+      {day.answers.length === 0 ? (
+        <p className="muted">这一天没有提交答案。</p>
+      ) : (
+        day.answers.map((answer, i) => (
+          <article className="answer-review" key={answer.id}>
+            <div className="review-meta">
+              <strong>第 {i + 1} 次回答</strong>
+              <span>
+                {finalScore(answer) === null
+                  ? "等待人工审核"
+                  : `${finalScore(answer)} / 5 分`}
+              </span>
+            </div>
+            <p className="answer-text">{answer.text}</p>
+            <div className="review-ai">
+              <strong>
+                AI 反馈{" "}
+                {answer.grade.score !== null && `· ${answer.grade.score}/5`}
+              </strong>
+              <p>{answer.grade.tip}</p>
+              {answer.grade.missing.length > 0 && (
+                <ul>
+                  {answer.grade.missing.map((p) => (
+                    <li key={p}>{p}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            {answer.override && (
+              <div className="override-note">
+                <ShieldCheck size={16} />
+                <p>
+                  <strong>裁判最终评分：{answer.override.score} / 5</strong>
+                  <br />
+                  {answer.override.reason}
+                </p>
+              </div>
+            )}
+            {snapshot.role === "referee" && (
+              <ReviewForm
+                date={date}
+                answerId={answer.id}
+                score={finalScore(answer) ?? 3}
+              />
+            )}
+          </article>
+        ))
+      )}
+      {day.bq && (
+        <div className="detail-bq">
+          <h3>BQ · {day.bq.stage === 1 ? "STAR 草稿" : "口述练习"}</h3>
+          <p lang="en">{bq?.prompt}</p>
+          <p className="answer-text">{day.bq.text || "尚未填写"}</p>
+          <span className="muted">
+            {day.bq.practiced
+              ? "已确认大声练习"
+              : day.bq.stage === 2
+                ? "尚未确认练习"
+                : "口述安排在后续日期"}
+          </span>
+        </div>
+      )}
+      {day.logs.length > 0 && (
+        <div className="recent-logs">
+          <h3>申请与联系记录</h3>
+          {day.logs.map((l) => (
+            <div key={l.id}>
+              <span>
+                {l.kind === "application" ? "申请" : "联系"} +{l.count} ·{" "}
+                {l.company || "未填写公司"}
+              </span>
+              {l.link && (
+                <a href={l.link} target="_blank" rel="noreferrer">
+                  查看链接
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+}
+function ReviewForm({
+  date,
+  answerId,
+  score,
+}: {
+  date: string;
+  answerId: string;
+  score: number;
+}) {
+  const { act, busy } = useGame(),
+    [selected, setSelected] = useState(score),
+    [reason, setReason] = useState("");
+  return (
+    <form
+      className="review-form"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (
+          await act({
+            type: "override",
+            date,
+            answerId,
+            score: selected,
+            reason,
+          })
+        )
+          setReason("");
+      }}
+    >
+      <h4>裁判审核 / 改分</h4>
+      <label>
+        最终评分
+        <select
+          value={selected}
+          onChange={(e) => setSelected(Number(e.target.value))}
+        >
+          {[1, 2, 3, 4, 5].map((n) => (
+            <option key={n} value={n}>
+              {n} 分 · {n >= 3 ? "通过" : "不通过"}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        评审说明
+        <input
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          minLength={3}
+          maxLength={1000}
+          required
+          placeholder="说明通过或需改进的原因"
+        />
+      </label>
+      <div className="review-actions">
+        <button className="button primary" disabled={busy}>
+          保存裁判评分
+        </button>
+        <span className="muted small">保存后自动重新计算历史连胜与罚金。</span>
+      </div>
+    </form>
+  );
+}
+export function Stats() {
+  const { snapshot } = useGame(),
+    { summary, state } = snapshot;
+  const days = Object.values(state.days),
+    totals = days.reduce(
+      (acc, d) => ({
+        apps: acc.apps + d.applications,
+        contacts: acc.contacts + d.contacts,
+      }),
+      { apps: 0, contacts: 0 },
+    );
+  const progress = completedBq(state),
+    categories = ["ML", "AI/LLM", "SQL", "Python", "Project"];
+  return (
+    <>
+      <PageTitle title="看见，正在变强的你" subtitle="成长记录" />
+      <div className="stat-strip">
+        {[
+          {
+            label: "当前连胜",
+            value: summary.streak,
+            unit: "天",
+            icon: Flame,
+            tone: "peach",
+          },
+          {
+            label: "累计积分",
+            value: summary.points,
+            unit: "分",
+            icon: Star,
+            tone: "yellow",
+          },
+          {
+            label: "投递申请",
+            value: totals.apps,
+            unit: "份",
+            icon: Target,
+            tone: "blue",
+          },
+          {
+            label: "建立联系",
+            value: totals.contacts,
+            unit: "人",
+            icon: TrendingUp,
+            tone: "green",
+          },
+        ].map(({ label, value, unit, icon: Icon, tone }) => (
+          <div key={label}>
+            <span className={`task-icon ${tone}`}>
+              <Icon size={23} />
+            </span>
+            <p>{label}</p>
+            <strong>
+              {value.toLocaleString()}
+              <small>{unit}</small>
+            </strong>
+          </div>
+        ))}
+      </div>
+      <div className="stats-grid">
+        <section className="white-panel">
+          <SectionHeading
+            title="最近 14 天"
+            note={`最长连胜 ${summary.bestStreak} 天，努力正在积累。`}
+          />
+          <div
+            className="activity-chart"
+            role="img"
+            aria-label={`最近14天获得积分 ${summary.days.filter((d) => d.date >= addDays(snapshot.today, -13)).reduce((n, d) => n + d.points, 0)} 分`}
+          >
+            {Array.from({ length: 14 }, (_, i) => {
+              const date = addDays(snapshot.today, i - 13),
+                d = summary.days.find((d) => d.date === date),
+                max = Math.max(1, ...summary.days.map((d) => d.points));
+              return (
+                <div key={date}>
+                  <span className="bar-number">{d?.points || ""}</span>
+                  <div className="bar-track">
+                    <span
+                      className={d?.status || ""}
+                      style={{
+                        height: `${d ? Math.max(3, (d.points / max) * 100) : 3}%`,
+                      }}
+                    />
+                  </div>
+                  <small>{date.slice(8)}</small>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+        <section className="white-panel">
+          <SectionHeading
+            title="面试训练分布"
+            note="每个类别按日期计数，最终评分 ≥ 3 为通过。"
+          />
+          <div className="category-stats">
+            {categories.map((c) => {
+              const assigned = days.filter((d) => d.question?.category === c),
+                passed = assigned.filter(
+                  (d) => (finalScore(latestAnswer(d)) ?? 0) >= 3,
+                ).length;
+              return (
+                <div key={c}>
+                  <div>
+                    <span>{c === "Project" ? "项目深挖" : c}</span>
+                    <strong>
+                      {passed} / {assigned.length}
+                    </strong>
+                  </div>
+                  <Progress
+                    value={
+                      assigned.length ? (passed / assigned.length) * 100 : 0
+                    }
+                    label={`${c}通过率`}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+      <section className="rewards-section">
+        <SectionHeading
+          title="属于你的里程碑"
+          note="只有重要的时刻，值得盛大庆祝。"
+        />
+        <div className="reward-grid">
+          {[...state.settings.rewards]
+            .sort((a, b) => a.streak - b.streak)
+            .map((r) => {
+              const earned = summary.rewards.find((e) => e.streak === r.streak);
+              return (
+                <div
+                  className={`reward-tile ${earned ? "unlocked" : ""}`}
+                  key={r.streak}
+                >
+                  <span className="reward-tile-icon">
+                    {earned ? <Gift size={29} /> : <LockKeyhole size={27} />}
+                  </span>
+                  <span className="reward-days">{r.streak} 天连胜</span>
+                  <h3>{earned?.text || r.text}</h3>
+                  <p>
+                    {earned
+                      ? `${earned.date} 已解锁`
+                      : `还需 ${Math.max(0, r.streak - summary.streak)} 天`}
+                  </p>
+                </div>
+              );
+            })}
+        </div>
+      </section>
+      <section className="white-panel">
+        <SectionHeading
+          title="12 个故事，24 次进步"
+          note={`已完成 ${summary.bqCompleted} 道 BQ 的草稿与口述。全部完成后，不再计入每日最低要求。`}
+        />
+        <div className="bq-bank-list">
+          {(data as Question[])
+            .filter((q) => q.category === "BQ")
+            .map((q) => {
+              const p = progress.get(q.id);
+              return (
+                <div key={q.id}>
+                  <span>{q.id.split("-")[1]}</span>
+                  <p lang="en">{q.prompt}</p>
+                  <span className={p?.draft ? "stage-done" : ""}>
+                    {p?.draft ? <Check size={14} /> : <Pencil size={14} />}
+                    {p?.draft ? "草稿完成" : "待写草稿"}
+                  </span>
+                  <span className={p?.practice ? "stage-done" : ""}>
+                    {p?.practice ? <Check size={14} /> : <Clock3 size={14} />}
+                    {p?.practice ? "口述完成" : "待练口述"}
+                  </span>
+                </div>
+              );
+            })}
+        </div>
+      </section>
+    </>
+  );
+}
+export function Projects() {
+  const { snapshot, act, busy } = useGame(),
+    [editing, setEditing] = useState<Project | null>(null),
+    projects = snapshot.state.projects;
+  const isPlayer = snapshot.role === "player";
+  function start() {
+    setEditing({
+      id: crypto.randomUUID(),
+      title: "",
+      summary: "",
+      role: "",
+      methods: "",
+      metrics: "",
+    });
+  }
+  return (
+    <>
+      <PageTitle title="你的项目，你来讲透" subtitle="项目档案" />
+      <div className="project-intro">
+        <span className="project-intro-icon">
+          <FolderOpen size={35} />
+        </span>
+        <div>
+          <h2>准备 2–3 个，你真正参与过的项目。</h2>
+          <p>
+            每到项目深挖日，我们会围绕你的方法选择、个人贡献、衡量方式和失败场景，提出一个具体追问。
+          </p>
+        </div>
+        {isPlayer && (
+          <button
+            className="button primary"
+            onClick={start}
+            disabled={projects.length >= 3}
+          >
+            <Plus size={17} /> 添加项目
+          </button>
+        )}
+      </div>
+      <div className="project-grid">
+        {projects.map((p, i) => (
+          <article className="project-card" key={p.id}>
+            <div className="project-card-top">
+              <span className="project-number">
+                Project {String(i + 1).padStart(2, "0")}
+              </span>
+              {isPlayer && (
+                <button
+                  className="icon-button"
+                  aria-label={`编辑${p.title}`}
+                  onClick={() => setEditing(p)}
+                >
+                  <Pencil size={18} />
+                </button>
+              )}
+            </div>
+            <h2>{p.title}</h2>
+            <p>{p.summary}</p>
+            <dl>
+              <dt>我负责的部分</dt>
+              <dd>{p.role}</dd>
+              <dt>方法与技术</dt>
+              <dd>{p.methods}</dd>
+              <dt>结果与指标</dt>
+              <dd>{p.metrics}</dd>
+            </dl>
+            <span className="project-ready">
+              <Check size={14} /> 已加入项目深挖题库
+            </span>
+          </article>
+        ))}
+        {projects.length < 3 && isPlayer && (
+          <button className="add-project-card" onClick={start}>
+            <span>
+              <Plus size={30} />
+            </span>
+            <strong>添加{projects.length ? "下一个" : "第一个"}项目</strong>
+            <p>一个真实的问题，一段属于你的经历。</p>
+          </button>
+        )}
+      </div>
+      {projects.length < 2 && (
+        <p className="form-hint">
+          建议录入至少 2 个项目，让项目深挖训练覆盖不同经历。
+        </p>
+      )}
+      {editing && (
+        <Modal
+          title={
+            projects.some((p) => p.id === editing.id) ? "编辑项目" : "添加项目"
+          }
+          close={() => setEditing(null)}
+        >
+          <form
+            className="stack-form"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const form = new FormData(e.currentTarget);
+              const project = {
+                id: editing.id,
+                title: String(form.get("title")),
+                summary: String(form.get("summary")),
+                role: String(form.get("role")),
+                methods: String(form.get("methods")),
+                metrics: String(form.get("metrics")),
+              };
+              if (await act({ type: "project", project })) setEditing(null);
+            }}
+          >
+            <label>
+              项目名称
+              <input
+                name="title"
+                defaultValue={editing.title}
+                minLength={2}
+                maxLength={200}
+                required
+                placeholder="例如：面向订阅用户的流失预测"
+              />
+            </label>
+            <label>
+              项目背景与目标
+              <textarea
+                name="summary"
+                defaultValue={editing.summary}
+                minLength={20}
+                maxLength={2000}
+                required
+                rows={3}
+                placeholder="为谁解决什么问题？至少 20 个字符。"
+              />
+            </label>
+            <label>
+              你个人负责的部分
+              <textarea
+                name="role"
+                defaultValue={editing.role}
+                minLength={5}
+                maxLength={1000}
+                required
+                rows={2}
+                placeholder="具体到你亲自做出的决定和交付。"
+              />
+            </label>
+            <label>
+              方法与技术
+              <input
+                name="methods"
+                defaultValue={editing.methods}
+                minLength={3}
+                maxLength={1000}
+                required
+                placeholder="例如：LightGBM、时间切分验证、SHAP"
+              />
+            </label>
+            <label>
+              结果、指标与衡量方式
+              <textarea
+                name="metrics"
+                defaultValue={editing.metrics}
+                minLength={3}
+                maxLength={1000}
+                required
+                rows={2}
+                placeholder="写明基线、提升幅度和验证方式；未测量也可如实说明。"
+              />
+            </label>
+            <button className="button primary full" disabled={busy}>
+              保存项目档案
+            </button>
+          </form>
+        </Modal>
+      )}
+    </>
+  );
+}
+export function Referee() {
+  const { snapshot, act, busy } = useGame(),
+    [filter, setFilter] = useState("all"),
+    [selected, setSelected] = useState<string | null>(null),
+    [redeemOpen, setRedeemOpen] = useState(false);
+  if (snapshot.role !== "referee") return <Restricted />;
+  const { summary, state } = snapshot,
+    pending = Object.values(state.days).filter((d) => {
+      const answer = latestAnswer(d);
+      return answer && finalScore(answer) === null;
+    });
+  const days = [...summary.days]
+    .reverse()
+    .filter(
+      (d) =>
+        filter === "all" ||
+        (filter === "review"
+          ? pending.some((p) => p.date === d.date)
+          : d.status === "missed" || d.status === "frozen"),
+    );
+  return (
+    <>
+      <PageTitle title="做她最靠谱的加油官" subtitle="裁判工作台" />
+      <div className="referee-summary">
+        <div>
+          <span className="task-icon lavender">
+            <ShieldCheck size={24} />
+          </span>
+          <p>等待你的评审</p>
+          <strong>
+            {pending.length}
+            <small> 天</small>
+          </strong>
+        </div>
+        <div>
+          <span className="task-icon peach">
+            <Flame size={24} />
+          </span>
+          <p>当前连胜</p>
+          <strong>
+            {summary.streak}
+            <small> 天</small>
+          </strong>
+        </div>
+        <div className="pool-stat">
+          <span className="task-icon yellow">
+            <Gift size={24} />
+          </span>
+          <p>请客基金</p>
+          <strong>
+            ${summary.pool}
+            <small> / ${state.settings.penaltyThreshold}</small>
+          </strong>
+          <button
+            className="small-button"
+            disabled={busy || summary.pool < state.settings.penaltyThreshold}
+            onClick={() => setRedeemOpen(true)}
+          >
+            确认已请客
+          </button>
+        </div>
+      </div>
+      {summary.pool >= state.settings.penaltyThreshold && (
+        <div className="penalty-banner">
+          <Gift />
+          <strong>请裁判吃饭</strong>
+          <span>兑换后清空当前累计金额，并保留兑换记录。</span>
+        </div>
+      )}
+      <section className="white-panel referee-days">
+        <div className="section-heading">
+          <h2>每日训练记录</h2>
+          <div className="filter-tabs" aria-label="筛选训练记录">
+            {[
+              ["all", "全部"],
+              ["review", `待评审 ${pending.length}`],
+              ["missed", "未达标 / 冻结"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                aria-pressed={filter === value}
+                className={filter === value ? "active" : ""}
+                onClick={() => setFilter(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="day-table">
+          <div className="day-table-head">
+            <span>日期</span>
+            <span>任务进度</span>
+            <span>面试评分</span>
+            <span>状态</span>
+            <span />
+          </div>
+          {days.length === 0 && (
+            <div className="empty-state">
+              <Check size={32} />
+              <h3>这里已经处理完啦</h3>
+              <p>新的训练记录会出现在这里。</p>
+            </div>
+          )}
+          {days.map((d) => {
+            const day = state.days[d.date],
+              score = finalScore(latestAnswer(day)),
+              req = requirements(day);
+            return (
+              <button
+                className="day-table-row"
+                key={d.date}
+                onClick={() => setSelected(d.date)}
+              >
+                <strong>
+                  {d.date}
+                  <small>{day.question?.category || "项目深挖"}</small>
+                </strong>
+                <span>
+                  {req.completed} / {req.required} 已完成
+                </span>
+                <span>
+                  {score === null
+                    ? day.answers.length
+                      ? "待评审"
+                      : "未作答"
+                    : `${score} / 5`}
+                </span>
+                <Status status={d.status} />
+                <ChevronRight size={18} />
+              </button>
+            );
+          })}
+        </div>
+      </section>
+      <section className="audit-section">
+        <SectionHeading title="最近的裁判操作" />
+        <div>
+          {state.audit
+            .filter((a) =>
+              ["override", "settings", "redeem"].includes(a.action),
+            )
+            .slice(-10)
+            .reverse()
+            .map((a) => (
+              <div className="audit-row" key={a.id}>
+                <ShieldCheck size={16} />
+                <p>
+                  {a.date && `${a.date} · `}
+                  {a.detail}
+                </p>
+                <time>
+                  {new Date(a.at).toLocaleString("zh-CN", {
+                    timeZone: "America/New_York",
+                    month: "numeric",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </time>
+              </div>
+            ))}
+          {!state.audit.some((a) =>
+            ["override", "settings", "redeem"].includes(a.action),
+          ) && (
+            <p className="muted">第一次评审或修改设置后，会在这里留下记录。</p>
+          )}
+        </div>
+      </section>
+      {selected && (
+        <DayDetail date={selected} close={() => setSelected(null)} />
+      )}
+      {redeemOpen && (
+        <Modal title="确认已请裁判吃饭" close={() => setRedeemOpen(false)}>
+          <p>
+            将兑换当前 ${summary.pool}{" "}
+            请客基金。确认后金额归零，兑换记录会永久保留。
+          </p>
+          <button
+            className="button primary full"
+            disabled={busy}
+            onClick={async () => {
+              if (await act({ type: "redeem" })) setRedeemOpen(false);
+            }}
+          >
+            已请客，兑换 ${summary.pool}
+          </button>
+        </Modal>
+      )}
+    </>
+  );
+}
+function Restricted() {
+  return (
+    <div className="access-message">
+      <LockKeyhole size={40} />
+      <h1>这是裁判的工作区</h1>
+      <p>请使用裁判账号登录。演示模式可以在页面顶部切换视角。</p>
+      <Link href="/" className="button primary">
+        回到今日挑战
+      </Link>
+    </div>
+  );
+}
+export function SettingsView() {
+  const { snapshot, act, busy } = useGame();
+  if (snapshot.role !== "referee") return <Restricted />;
+  return (
+    <SettingsForm
+      key={JSON.stringify(
+        snapshot.state.nextSettings || snapshot.state.settings,
+      )}
+      settings={snapshot.state.nextSettings || snapshot.state.settings}
+      pending={Boolean(snapshot.state.nextSettings)}
+      save={(settings) => act({ type: "settings", settings })}
+      busy={busy}
+    />
+  );
+}
+function SettingsForm({
+  settings,
+  pending,
+  save,
+  busy,
+}: {
+  settings: Settings;
+  pending: boolean;
+  save: (settings: Settings) => Promise<boolean>;
+  busy: boolean;
+}) {
+  const [rewards, setRewards] = useState(settings.rewards);
+  const numericFields: {
+    key: keyof Settings;
+    label: string;
+    min: number;
+    max: number;
+  }[] = [
+    { key: "applications", label: "每日申请最低份数", min: 1, max: 100 },
+    { key: "contacts", label: "每日联系最低人数", min: 1, max: 1000 },
+    { key: "bonusApplications", label: "申请加分门槛", min: 1, max: 100 },
+    { key: "bonusContacts", label: "联系加分门槛", min: 1, max: 1000 },
+    { key: "basePoints", label: "达标基础积分", min: 1, max: 1000 },
+    { key: "bonusPoints", label: "每项加分积分", min: 0, max: 1000 },
+    { key: "penaltyAmount", label: "漏打卡罚金（美元）", min: 1, max: 1000 },
+    {
+      key: "penaltyThreshold",
+      label: "请客基金兑换门槛（美元）",
+      min: 1,
+      max: 10000,
+    },
+  ];
+  return (
+    <>
+      <PageTitle title="把约定，设置成规则" subtitle="挑战设置" />
+      {pending && (
+        <div className="info-banner">
+          <Clock3 size={18} />{" "}
+          修改已保存，将于下一训练日开始时生效。当天规则保持原样。
+        </div>
+      )}
+      <form
+        className="settings-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const form = new FormData(e.currentTarget);
+          const s = {
+            ...settings,
+            rewards,
+            closeHour: Number(form.get("closeHour")),
+            schedule: settings.schedule.map((_, i) =>
+              String(form.get(`schedule-${i}`)),
+            ),
+          } as Settings;
+          for (const field of numericFields)
+            (s as unknown as Record<string, unknown>)[field.key] = Number(
+              form.get(field.key),
+            );
+          void save(s);
+        }}
+      >
+        <section className="white-panel">
+          <SectionHeading
+            title="每天的小目标"
+            note="最低目标需全部完成。两项超额目标各获得一次加分。"
+          />
+          <div className="settings-fields">
+            {numericFields.map((f) => (
+              <label key={f.key}>
+                {f.label}
+                <input
+                  type="number"
+                  name={f.key}
+                  min={f.min}
+                  max={f.max}
+                  defaultValue={settings[f.key] as number}
+                  required
+                />
+              </label>
+            ))}
+          </div>
+        </section>
+        <section className="white-panel">
+          <SectionHeading
+            title="训练日与出题安排"
+            note="时区固定为 America/New_York，自动处理夏令时。"
+          />
+          <label className="close-hour-label">
+            一天的结算时间（纽约本地时间）
+            <select name="closeHour" defaultValue={settings.closeHour}>
+              {Array.from({ length: 24 }, (_, i) => (
+                <option key={i} value={i}>
+                  {String(i).padStart(2, "0")}:00
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="schedule-settings">
+            {[1, 2, 3, 4, 5, 6, 0].map((w) => (
+              <label key={w}>
+                {["周日", "周一", "周二", "周三", "周四", "周五", "周六"][w]}
+                <select
+                  name={`schedule-${w}`}
+                  defaultValue={settings.schedule[w]}
+                >
+                  {[
+                    "ML",
+                    "AI/LLM",
+                    "SQL",
+                    "Python",
+                    "Project",
+                    "Alternate",
+                  ].map((c) => (
+                    <option key={c} value={c}>
+                      {c === "Project"
+                        ? "项目深挖"
+                        : c === "Alternate"
+                          ? "SQL / Python 隔周轮换"
+                          : c}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+          <p className="form-hint">
+            修改结算时刻会缩短或延长下一训练日的过渡时段。已开始日期的截止时刻不会变化。
+          </p>
+        </section>
+        <section className="white-panel">
+          <SectionHeading
+            title="值得期待的奖励"
+            note="每个里程碑首次达成时解锁，并全屏庆祝。"
+          />
+          <div className="reward-settings">
+            {rewards.map((r, i) => (
+              <div key={i}>
+                <label>
+                  连胜天数
+                  <input
+                    aria-label={`奖励 ${i + 1} 连胜天数`}
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={r.streak}
+                    required
+                    onChange={(e) =>
+                      setRewards(
+                        rewards.map((v, j) =>
+                          i === j
+                            ? { ...v, streak: Number(e.target.value) }
+                            : v,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+                <label>
+                  奖励内容
+                  <input
+                    aria-label={`奖励 ${i + 1} 内容`}
+                    value={r.text}
+                    maxLength={200}
+                    required
+                    onChange={(e) =>
+                      setRewards(
+                        rewards.map((v, j) =>
+                          i === j ? { ...v, text: e.target.value } : v,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`移除奖励 ${i + 1}`}
+                  disabled={rewards.length <= 1}
+                  onClick={() => setRewards(rewards.filter((_, j) => i !== j))}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            className="text-button"
+            type="button"
+            disabled={rewards.length >= 10}
+            onClick={() =>
+              setRewards([
+                ...rewards,
+                {
+                  streak: Math.max(...rewards.map((r) => r.streak)) + 7,
+                  text: "",
+                },
+              ])
+            }
+          >
+            <Plus size={16} /> 添加里程碑
+          </button>
+        </section>
+        <div className="settings-footer">
+          <p>
+            <Snowflake size={16} /> 冻结卡每周一自动补充 1 张，最多持有 2 张。
+          </p>
+          <button className="button primary" disabled={busy}>
+            保存挑战设置
+          </button>
+        </div>
+      </form>
+    </>
+  );
+}
