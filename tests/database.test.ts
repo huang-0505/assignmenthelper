@@ -5,16 +5,11 @@ import data from "../data/questions.json";
 let db: PGlite;
 beforeAll(async () => {
   db = new PGlite();
-  await db.exec(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
-    CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY);
-    CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS 'SELECT nullif(current_setting(''request.jwt.claim.sub'', true), '''')::uuid';
-    GRANT USAGE ON SCHEMA auth TO anon, authenticated;
-    INSERT INTO auth.users VALUES ('00000000-0000-4000-8000-000000000001'), ('00000000-0000-4000-8000-000000000002'), ('00000000-0000-4000-8000-000000000003');`);
+  await db.exec(
+    "CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;",
+  );
   await db.exec(readFileSync("supabase/migrations/001_initial.sql", "utf8"));
   await db.exec(readFileSync("supabase/seed.sql", "utf8"));
-  await db.exec(
-    `INSERT INTO public.profiles VALUES ('00000000-0000-4000-8000-000000000001','player','Player'), ('00000000-0000-4000-8000-000000000002','referee','Referee');`,
-  );
 }, 30000);
 afterAll(async () => {
   await db.close();
@@ -29,13 +24,6 @@ describe("Postgres migration, seed and security", () => {
         )
       ).rows[0].count,
     ).toBe(112);
-  });
-  it("enforces one player and one referee", async () => {
-    await expect(
-      db.exec(
-        `INSERT INTO public.profiles VALUES ('00000000-0000-4000-8000-000000000003','player','Third')`,
-      ),
-    ).rejects.toThrow();
   });
   it("atomically accepts only one writer at a revision", async () => {
     const initial = { version: 1, marker: "initial" };
@@ -64,44 +52,25 @@ describe("Postgres migration, seed and security", () => {
       ).rows[0].revision,
     ).toBe(1);
   });
-  it("rejects state access, role escalation, and RPC from an authenticated browser", async () => {
-    await db.exec(
-      `SET ROLE authenticated; SET "request.jwt.claim.sub" = '00000000-0000-4000-8000-000000000001';`,
-    );
-    try {
-      const own = await db.query<{ role: string }>(
-        "SELECT role FROM public.profiles",
-      );
-      expect(own.rows).toEqual([{ role: "player" }]);
-      await expect(
-        db.query("SELECT * FROM public.game_state"),
-      ).rejects.toThrow();
-      await expect(
-        db.query("SELECT * FROM public.question_bank"),
-      ).rejects.toThrow();
-      await expect(
-        db.query(
-          "UPDATE public.profiles SET role='referee' WHERE id=auth.uid()",
-        ),
-      ).rejects.toThrow();
-      await expect(
-        db.query(`SELECT public.commit_game(1,'{"version":1}'::jsonb)`),
-      ).rejects.toThrow();
-    } finally {
-      await db.exec("RESET ROLE");
-    }
-  });
-  it("denies anonymous access", async () => {
-    await db.exec("SET ROLE anon");
-    try {
-      await expect(db.query("SELECT * FROM public.profiles")).rejects.toThrow();
-      await expect(
-        db.query("SELECT * FROM public.game_state"),
-      ).rejects.toThrow();
-    } finally {
-      await db.exec("RESET ROLE");
-    }
-  });
+  it.each(["anon", "authenticated"])(
+    "denies the %s browser role any table or RPC access",
+    async (role) => {
+      await db.exec(`SET ROLE ${role}`);
+      try {
+        await expect(
+          db.query("SELECT * FROM public.game_state"),
+        ).rejects.toThrow();
+        await expect(
+          db.query("SELECT * FROM public.question_bank"),
+        ).rejects.toThrow();
+        await expect(
+          db.query(`SELECT public.commit_game(1,'{"version":1}'::jsonb)`),
+        ).rejects.toThrow();
+      } finally {
+        await db.exec("RESET ROLE");
+      }
+    },
+  );
 });
 describe("SQL reference answers", () => {
   beforeAll(async () => {

@@ -1,14 +1,5 @@
--- One household, one player, one referee. Roles can only be provisioned by a trusted admin.
-CREATE TABLE public.profiles (
-  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  role text NOT NULL UNIQUE CHECK (role IN ('player', 'referee')),
-  display_name text NOT NULL CHECK (length(display_name) BETWEEN 1 AND 80)
-);
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY read_own_profile ON public.profiles FOR SELECT TO authenticated USING (id = auth.uid());
-GRANT SELECT ON public.profiles TO authenticated;
-REVOKE INSERT, UPDATE, DELETE ON public.profiles FROM anon, authenticated;
-
+-- One household, one player, one referee. There are no accounts: the server signs its own
+-- session cookie and is the only reader and writer, using the service role.
 CREATE TABLE public.question_bank (
   id text PRIMARY KEY,
   category text NOT NULL CHECK (category IN ('ML','AI/LLM','SQL','Python','BQ')),
@@ -28,7 +19,7 @@ CREATE TABLE public.game_state (
 );
 ALTER TABLE public.game_state ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.game_state FROM anon, authenticated;
-GRANT ALL ON public.profiles, public.question_bank, public.game_state TO service_role;
+GRANT ALL ON public.question_bank, public.game_state TO service_role;
 
 CREATE FUNCTION public.commit_game(expected_revision bigint, next_state jsonb)
 RETURNS boolean LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$

@@ -32,6 +32,7 @@ export function useGame() {
 export function GameProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null),
     [login, setLogin] = useState(false),
+    [refereeKey, setRefereeKey] = useState<string | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const refresh = useCallback(async () => {
@@ -57,7 +58,15 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => {
     // Microtasks also run in background tabs; a timer can be throttled before the first load.
-    queueMicrotask(() => void refresh());
+    queueMicrotask(() => {
+      // The referee link carries its key in the fragment, which never reaches the server logs.
+      const key = new URLSearchParams(location.hash.slice(1)).get("key");
+      if (key) {
+        history.replaceState(null, "", location.pathname + location.search);
+        setRefereeKey(key);
+      }
+      void refresh();
+    });
     const timer = setInterval(() => {
       if (!document.hidden) void refresh();
     }, 60000);
@@ -100,7 +109,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
           ? "答案已保存，查看下方评审结果"
           : input.type === "settings"
             ? "设置已保存，将于下一训练日生效"
-            : "已保存，继续向前！",
+            : input.type === "playerName"
+              ? "玩家名字已更新，玩家需要用新名字重新进入"
+              : "已保存，继续向前！",
       );
       return true;
     } catch (error) {
@@ -134,8 +145,15 @@ export function GameProvider({ children }: { children: ReactNode }) {
         closeButton
         toastOptions={{ closeButtonAriaLabel: "关闭提示" }}
       />
-      {login ? (
-        <Login refresh={refresh} notice={error} />
+      {refereeKey !== null || login ? (
+        <Entry
+          refereeKey={refereeKey}
+          notice={error}
+          entered={async () => {
+            await refresh();
+            setRefereeKey(null);
+          }}
+        />
       ) : !snapshot ? (
         <div className="loading-page">
           <div className="brand-mark">
@@ -170,13 +188,16 @@ export function GameProvider({ children }: { children: ReactNode }) {
     </>
   );
 }
-function Login({
-  refresh,
+function Entry({
+  refereeKey,
   notice,
+  entered,
 }: {
-  refresh: () => Promise<void>;
+  refereeKey: string | null;
   notice: string;
+  entered: () => Promise<void>;
 }) {
+  const referee = refereeKey !== null;
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   return (
@@ -213,15 +234,15 @@ function Login({
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                email: form.get("email"),
-                password: form.get("password"),
+                name: form.get("name"),
+                ...(referee && { key: refereeKey }),
               }),
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
-            await refresh();
+            await entered();
           } catch (error) {
-            setError(error instanceof Error ? error.message : "登录失败");
+            setError(error instanceof Error ? error.message : "进入失败");
           } finally {
             setBusy(false);
           }
@@ -230,23 +251,24 @@ function Login({
         <div className="brand">
           Offer Quest<span>上岸闯关</span>
         </div>
-        <h2>欢迎回到训练营</h2>
-        {notice && (
+        <h2>{referee ? "裁判入口" : "欢迎来到训练营"}</h2>
+        {notice && !referee && (
           <p className="form-error" role="alert">
-            {notice}。也可以使用另一个账号登录。
+            {notice}
           </p>
         )}
-        <p className="muted">使用管理员为你设置的玩家或裁判账号。</p>
+        <p className="muted">
+          {referee
+            ? "输入你的名字，进入裁判工作台。"
+            : "输入你的名字就能开始。换设备时，输入同一个名字即可。"}
+        </p>
         <label>
-          邮箱
-          <input name="email" type="email" autoComplete="email" required />
-        </label>
-        <label>
-          密码
+          你的名字
           <input
-            name="password"
-            type="password"
-            autoComplete="current-password"
+            name="name"
+            autoComplete="nickname"
+            maxLength={40}
+            defaultValue={referee ? "裁判" : undefined}
             required
           />
         </label>
@@ -256,7 +278,7 @@ function Login({
           </p>
         )}
         <button className="button primary full" disabled={busy}>
-          {busy ? "正在登录…" : "进入训练营"}
+          {busy ? "正在进入…" : referee ? "进入裁判工作台" : "进入训练营"}
         </button>
       </form>
     </main>

@@ -49,6 +49,7 @@ const settingsSchema = z
   );
 const id = z.string().uuid();
 const common = { id, date: z.iso.date() };
+export const nameSchema = z.string().trim().min(1, "请输入名字").max(40);
 export const actionSchema = z.discriminatedUnion("type", [
   z.object({
     ...common,
@@ -104,8 +105,22 @@ export const actionSchema = z.discriminatedUnion("type", [
     reason: z.string().trim().min(3).max(1000),
   }),
   z.object({ id, type: z.literal("redeem") }),
+  z.object({ id, type: z.literal("playerName"), name: nameSchema }),
 ]);
 export type Action = z.infer<typeof actionSchema>;
+
+const normalizeName = (name: string) =>
+  name.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+export function sameName(a: string, b: string) {
+  return normalizeName(a) === normalizeName(b);
+}
+/** The first entered name becomes the player; afterwards only that name can enter. */
+export function claimPlayer(state: GameState, name: string) {
+  if (!state.playerName) state.playerName = name;
+  else if (!sameName(state.playerName, name))
+    throw new Error("这个训练营已经有玩家了，请输入玩家本人的名字");
+  return state.playerName;
+}
 export function applyAction(
   state: GameState,
   action: Action,
@@ -114,9 +129,12 @@ export function applyAction(
   now: string,
   bank: Question[],
 ) {
-  const refereeAction = ["settings", "override", "redeem"].includes(
-    action.type,
-  );
+  const refereeAction = [
+    "settings",
+    "override",
+    "redeem",
+    "playerName",
+  ].includes(action.type);
   if (refereeAction !== (role === "referee"))
     throw new Error("你的角色没有这项操作的权限");
   if (state.audit.some((a) => a.id === action.id)) return;
@@ -235,6 +253,9 @@ export function applyAction(
       state.redemptions.push({ id: action.id, at: now, amount: summary.pool });
       break;
     }
+    case "playerName":
+      state.playerName = action.name;
+      break;
   }
   state.audit.push({
     id: action.id,
@@ -249,7 +270,9 @@ export function applyAction(
           ? "设置于下一训练日生效"
           : action.type === "redeem"
             ? "裁判确认已请客，清空已累计罚金"
-            : "已保存",
+            : action.type === "playerName"
+              ? `玩家名字改为「${action.name}」`
+              : "已保存",
   });
 }
 

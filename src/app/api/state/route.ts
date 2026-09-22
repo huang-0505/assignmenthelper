@@ -1,4 +1,9 @@
-import { requireUser, isDemo, errorResponse } from "@/lib/server/supabase";
+import {
+  requireUser,
+  isDemo,
+  errorResponse,
+  member,
+} from "@/lib/server/supabase";
 import { snapshot, transact } from "@/lib/server/repository";
 export const dynamic = "force-dynamic";
 export async function GET() {
@@ -10,7 +15,8 @@ export async function GET() {
   try {
     const user = await requireUser();
     const now = new Date().toISOString();
-    return Response.json(snapshot(await transact(undefined, now), user, now), {
+    const state = await transact(undefined, now);
+    return Response.json(snapshot(state, member(state, user), now), {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {

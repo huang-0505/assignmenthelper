@@ -2177,6 +2177,20 @@ main#main {
 .settings-fields input {
   max-width: 230px;
 }
+.player-name-panel {
+  margin-bottom: 24px;
+}
+.player-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+}
+.player-name-row label {
+  flex: 1 1 220px;
+  max-width: 320px;
+  font-size: 12px;
+}
 .close-hour-label {
   max-width: 310px;
   font-size: 12px;

@@ -113,7 +113,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <button
               className="icon-button"
               onClick={logout}
-              aria-label="退出登录"
+              aria-label="退出训练营"
             >
               <LogOut size={17} />
             </button>

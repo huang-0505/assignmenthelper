@@ -1,6 +1,6 @@
 # Offer Quest · 上岸闯关
 
-为一位准备 Data Scientist 面试的玩家和一位裁判打造的中文每日训练营。Next.js App Router + TypeScript + Tailwind CSS，Supabase Auth / Postgres，适配 Vercel Hobby。
+为一位准备 Data Scientist 面试的玩家和一位裁判打造的中文每日训练营。Next.js App Router + TypeScript + Tailwind CSS，Supabase Postgres，适配 Vercel Hobby。没有账号和密码：玩家输入名字进入，裁判用专属链接进入。
 
 ## 先在本机体验
 
@@ -16,7 +16,7 @@ npm run dev
 
 - 预置六天训练记录、两个示例项目、今天部分进度。
 - 演示状态保存在当前浏览器的 `localStorage`，刷新不会丢失；不同浏览器不共享。
-- 页面顶部可切换玩家 / 裁判。正式模式只能由登录账号决定角色。
+- 页面顶部可切换玩家 / 裁判。正式模式下，角色由进入方式决定：首页输入名字是玩家，专属链接是裁判。
 - 演示不调用 AI；提交答案后切换裁判，在工作台打开今天、填写评语并给出 3 分以上，即可体验通过及第七天里程碑。
 - 面试和 BQ 草稿会自动保存在本机；点击保存 / 提交才写入训练记录。
 - 要清除演示数据，可在浏览器站点数据设置中清除此本地站点的数据。
@@ -34,18 +34,7 @@ DEMO_MODE=true npm start
 2. 在 SQL Editor 按顺序执行：
    - `supabase/migrations/001_initial.sql`（仅首次建库执行）。
    - `supabase/seed.sql`（可重复执行，按题目 ID 更新）。
-3. 在 Authentication → Users 中创建两个 Email / Password 用户，并确认邮箱。使用不同邮箱。不要开启公开注册。
-4. 在 SQL Editor 插入这两个用户的角色。替换下方 UUID 和显示名称；UUID 来自 Authentication → Users，不是邮箱：
-
-```sql
-insert into public.profiles (id, role, display_name) values
-  ('替换为玩家的用户 UUID', 'player', '未来的数据科学家'),
-  ('替换为裁判的用户 UUID', 'referee', '首席加油官');
-```
-
-角色列有唯一约束，整个应用最多一位玩家和一位裁判。没有对应 `profiles` 行的用户不能访问训练数据。用户无法从浏览器新增、修改角色。
-
-5. 复制环境变量示例。如果已有 `.env.local`，编辑它，不要覆盖：
+3. 复制环境变量示例。如果已有 `.env.local`，编辑它，不要覆盖：
 
 ```bash
 cp -n .env.example .env.local
@@ -53,37 +42,46 @@ cp -n .env.example .env.local
 
 填写：
 
-| 变量                            | 来源 / 用途                                                                         |
-| ------------------------------- | ----------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_SUPABASE_URL`      | Supabase 项目的 Project URL                                                         |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key 或 publishable key，可供客户端使用                                |
-| `SUPABASE_SERVICE_ROLE_KEY`     | Supabase service_role key，只能保存在服务端                                         |
-| `LLM_BASE_URL`                  | 默认 `https://openrouter.ai/api/v1`；其他 OpenAI-compatible 服务填写其 API base URL |
-| `LLM_API_KEY`                   | 对应服务商的 API key，只在服务器使用；留空时全部转裁判审核                          |
-| `LLM_MODELS`                    | 按优先级排列、用逗号分隔的模型 ID；默认全部为 OpenRouter `:free` 模型               |
-| `APP_URL`                       | 本地可留空（自动使用请求的 origin）；上线后必须设为最终 HTTPS 域名  |
-| `CRON_SECRET`                   | 随机长字符串，用于验证 Vercel cron 请求                                             |
-| `DEMO_MODE`                     | 正式使用设为 `false`；明确设为 `true` 可展示独立本机演示                            |
+| 变量                        | 来源 / 用途                                                                         |
+| --------------------------- | ----------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`  | Supabase 项目的 Project URL（只在服务端使用）                                       |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service_role key 或 secret key，只能保存在服务端                           |
+| `REFEREE_KEY`               | 随机长字符串：裁判专属链接的密钥，同时用于签名会话 cookie                           |
+| `LLM_BASE_URL`              | 默认 `https://openrouter.ai/api/v1`；其他 OpenAI-compatible 服务填写其 API base URL |
+| `LLM_API_KEY`               | 对应服务商的 API key，只在服务器使用；留空时全部转裁判审核                          |
+| `LLM_MODELS`                | 按优先级排列、用逗号分隔的模型 ID；默认全部为 OpenRouter `:free` 模型               |
+| `APP_URL`                   | 本地可留空（自动使用请求的 origin）；上线后必须设为最终 HTTPS 域名                  |
+| `CRON_SECRET`               | 随机长字符串，用于验证 Vercel cron 请求                                             |
+| `DEMO_MODE`                 | 正式使用设为 `false`；明确设为 `true` 可展示独立本机演示                            |
 
-可以用以下命令生成 cron secret，在自己的终端里复制到环境变量。不要提交 `.env.local`。
+可以用以下命令分别生成 `CRON_SECRET` 和 `REFEREE_KEY`，在自己的终端里复制到环境变量。不要提交 `.env.local`。
 
 ```bash
-node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
 ```
 
-6. 重启开发服务器，在页面登录。第一个有角色的账号访问应用时建立训练营，从当天开始，不预填真实记录。
+4. 重启开发服务器，按下文「进入方式」进入。第一次进入时建立训练营，从当天开始，不预填真实记录。
 
-Supabase Auth 使用 `@supabase/ssr` cookie 会话。API 通过 `auth.getUser()` 验证账号并读取受保护的角色；会话在 API 请求时刷新。文档：[Supabase SSR](https://supabase.com/docs/guides/auth/server-side)。
+## 进入方式
+
+没有账号和密码：
+
+- **玩家**打开首页，输入自己的名字即可进入。第一次输入的名字会成为玩家名字；之后换设备时输入同一个名字（不区分大小写）即可，其他名字会被拒绝。
+- **裁判**打开专属链接 `https://你的域名/referee#key=<REFEREE_KEY>`，确认名字后进入裁判工作台。密钥放在 `#` 之后，不会发到服务器或出现在请求日志里；页面读取后立即从地址栏移除。
+- 进入后，服务器写入一个用 `REFEREE_KEY` 签名的 HttpOnly cookie，有效期 180 天，同一设备不用再次输入。
+- 裁判可以在「挑战设置」里修改玩家名字：可以在玩家第一次进入前预先设好，也可以修正输错或被他人占用的名字。改名后，旧名字的会话立即失效。
+- 更换 `REFEREE_KEY` 会让所有人的会话和旧的裁判链接同时失效。
+
+名字只是一道轻量门槛，任何知道玩家名字的人都能以玩家身份进入；裁判权限只认密钥。请只把网址告诉玩家本人，把裁判链接留给自己。
 
 ## 部署到 Vercel 免费版
 
 1. 将此目录作为独立 Git 仓库推送到你的 GitHub，导入 Vercel；也可以在此目录运行 `npx vercel login` 和 `npx vercel`。
 2. Framework 选择 Next.js，Root Directory 为项目根目录，Node.js 选择 24.x。Build Command 使用 `npm run build`，Install Command 使用 `npm ci`。
 3. 在 Vercel Project → Settings → Environment Variables 中添加上述变量。`APP_URL` 必须对应这次部署实际访问的域名。Production 和 Preview 分开配置；预览环境可明确使用 `DEMO_MODE=true`，避免连接真实数据。
-4. 为正式环境设置 `DEMO_MODE=false`。`SUPABASE_SERVICE_ROLE_KEY`、`LLM_API_KEY`、`CRON_SECRET` 都不能带 `NEXT_PUBLIC_` 前缀。
-5. 将 Vercel HTTPS 域名设为 Supabase Authentication → URL Configuration 的 Site URL。当前采用密码登录，无邮件跳转流程。
-6. 更新变量后重新部署。分别用玩家和裁判账号登录，验证记录、人工审核和刷新后的数据持久化。
-7. Vercel 会读取 `vercel.json`，每天 UTC 10:00 调用 `/api/cron`。配置 `CRON_SECRET` 后，Vercel 自动附带对应 Bearer header。
+4. 为正式环境设置 `DEMO_MODE=false`。`SUPABASE_SERVICE_ROLE_KEY`、`REFEREE_KEY`、`LLM_API_KEY`、`CRON_SECRET` 都不能带 `NEXT_PUBLIC_` 前缀。
+5. 更新变量后重新部署。玩家在首页输入名字、裁判打开专属链接，分别验证记录、人工审核和刷新后的数据持久化。
+6. Vercel 会读取 `vercel.json`，每天 UTC 10:00 调用 `/api/cron`。配置 `CRON_SECRET` 后，Vercel 自动附带对应 Bearer header。`vercel.json` 同时把框架固定为 Next.js，即使项目创建时被识别成 "Other" 也能正常部署。
 
 Hobby cron 每天只能执行一次，且不保证精确到分钟。因此，**截止时间由服务器判断，cron 只是补结算兜底**；打开应用、刷新、提交动作、后台每分钟刷新都会按实际截止时间补齐日期。即使 cron 延迟，也无法补填已关闭日期。文档：[Vercel Cron 使用限制](https://vercel.com/docs/cron-jobs/usage-and-pricing)。
 
@@ -120,12 +118,12 @@ Hobby cron 每天只能执行一次，且不保证精确到分钟。因此，**�
 
 ```text
 src/app/[[...view]]/page.tsx    今日、日历、成长、项目、裁判、设置
-src/app/api/                  登录、状态读取、动作、cron 路由
+src/app/api/                  进入 / 退出、状态读取、动作、cron 路由
 src/components/               响应式界面和交互
 src/lib/engine.ts             日期、出题、BQ、可重放结算纯逻辑
 src/lib/actions.ts            Zod 输入校验和角色化动作
 src/lib/grading.ts             OpenAI-compatible 评分与回退
-src/lib/server/               Supabase 会话、事务和服务端题库
+src/lib/server/               签名会话、Supabase 事务和服务端题库
 src/lib/demo.ts               独立的本机演示数据
 src/lib/types.ts              类型定义
 supabase/migrations/          Postgres 表、RLS、原子提交函数
@@ -140,9 +138,9 @@ DESIGN.md                     配色、字体、布局和动效说明
 
 为保持双人应用简单，Postgres 使用一个 `game_state` JSONB 聚合行，内含项目、每天的快照、答案、审核与兑换记录。每次写入通过 `commit_game(expected_revision, next_state)` 原子比较版本；冲突重读重算，最多八次。每个动作带 UUID 去重，重复调用、并行请求或反复读取不会重复加分或扣罚。它适合本项目的一对玩家 / 裁判，不是多租户产品。
 
-RLS 和数据库权限禁止浏览器读写游戏聚合、参考题表、修改角色或直接调用提交函数。API 验证 Supabase 用户及角色后，才使用服务端 key 操作数据。认证 cookie 为 HttpOnly，不被 JavaScript 业务逻辑用来决定权限；HTTP 写请求还会检查同源 Origin。用户无法通过修改客户端 role 来成为真实裁判。
+RLS 和数据库权限禁止浏览器读写游戏聚合、参考题表或直接调用提交函数；浏览器从不直接连接 Supabase。API 先验证服务器签名的会话 cookie（HMAC-SHA256，密钥为 `REFEREE_KEY`），玩家会话还须与当前玩家名字一致，之后才使用服务端 key 操作数据。会话 cookie 为 HttpOnly、SameSite=Lax，生产环境带 Secure；HTTP 写请求还会检查同源 Origin。修改 cookie 内容会使签名失效，用户无法通过修改客户端 role 成为裁判。
 
-备份：在 Supabase SQL Editor 导出 `select revision, state, updated_at from public.game_state where id = 1;`，并保存角色账号映射。数据只属于这一对用户；请勿让多个正式 Vercel 项目共享同一数据库用于不同训练营。
+备份：在 Supabase SQL Editor 导出 `select revision, state, updated_at from public.game_state where id = 1;`（玩家名字也在其中）。数据只属于这一对用户；请勿让多个正式 Vercel 项目共享同一数据库用于不同训练营。
 
 ## 验证
 
@@ -153,11 +151,11 @@ npm run typecheck
 npm run build
 ```
 
-测试覆盖：全部最低项、超额积分、关闭前不罚、冻结保连胜、周补卡上限、罚金累计和兑换、里程碑、人工审核延迟、覆盖后重放、设置快照、跨午夜、春秋 DST、类别去重、BQ 不同日两阶段及毕业后复述、角色权限、输入校验、重复动作、模型错误回退。
+测试覆盖：全部最低项、超额积分、关闭前不罚、冻结保连胜、周补卡上限、罚金累计和兑换、里程碑、人工审核延迟、覆盖后重放、设置快照、跨午夜、春秋 DST、类别去重、BQ 不同日两阶段及毕业后复述、角色权限、输入校验、重复动作、模型错误回退；名字进入与名字锁定、裁判密钥、伪造 / 篡改 cookie、改名后旧会话失效、跨站请求。
 
-PGlite 在本机运行真正的 Postgres 引擎：验证建表迁移、RLS / grants、单一角色约束、并发版本冲突；执行全部 20 条 SQL 参考答案，并对时区、NULL、并列次序和 join 膨胀做结果断言。测试中的 `auth.users` / `auth.uid()` 为 Supabase 接口替身；不会连接或修改你的数据库。
+PGlite 在本机运行真正的 Postgres 引擎：验证建表迁移、RLS / grants、并发版本冲突；执行全部 20 条 SQL 参考答案，并对时区、NULL、并列次序和 join 膨胀做结果断言。测试不会连接或修改你的数据库。
 
-浏览器验收记录见 `QA.md`。没有配置真实密钥前，真实 Supabase 登录、真实 LLM 调用、Vercel 线上 cron 不算已验证。
+浏览器验收记录见 `QA.md`。没有配置真实密钥前，真实 Supabase 连接、真实 LLM 调用、Vercel 线上 cron 不算已验证。
 
 ## 设计
 

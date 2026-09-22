@@ -929,7 +929,7 @@ function Restricted() {
     <div className="access-message">
       <LockKeyhole size={40} />
       <h1>这是裁判的工作区</h1>
-      <p>请使用裁判账号登录。演示模式可以在页面顶部切换视角。</p>
+      <p>裁判请使用专属入口链接进入。演示模式可以在页面顶部切换视角。</p>
       <Link href="/" className="button primary">
         回到今日挑战
       </Link>
@@ -940,15 +940,63 @@ export function SettingsView() {
   const { snapshot, act, busy } = useGame();
   if (snapshot.role !== "referee") return <Restricted />;
   return (
-    <SettingsForm
-      key={JSON.stringify(
-        snapshot.state.nextSettings || snapshot.state.settings,
-      )}
-      settings={snapshot.state.nextSettings || snapshot.state.settings}
-      pending={Boolean(snapshot.state.nextSettings)}
-      save={(settings) => act({ type: "settings", settings })}
-      busy={busy}
-    />
+    <>
+      <PageTitle title="把约定，设置成规则" subtitle="挑战设置" />
+      <PlayerNameForm
+        key={snapshot.state.playerName}
+        name={snapshot.state.playerName}
+        save={(name) => act({ type: "playerName", name })}
+        busy={busy}
+      />
+      <SettingsForm
+        key={JSON.stringify(
+          snapshot.state.nextSettings || snapshot.state.settings,
+        )}
+        settings={snapshot.state.nextSettings || snapshot.state.settings}
+        pending={Boolean(snapshot.state.nextSettings)}
+        save={(settings) => act({ type: "settings", settings })}
+        busy={busy}
+      />
+    </>
+  );
+}
+function PlayerNameForm({
+  name,
+  save,
+  busy,
+}: {
+  name?: string;
+  save: (name: string) => Promise<boolean>;
+  busy: boolean;
+}) {
+  return (
+    <form
+      className="white-panel player-name-panel"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save(String(new FormData(e.currentTarget).get("playerName")));
+      }}
+    >
+      <SectionHeading
+        title="玩家名字"
+        note="玩家在首页输入这个名字进入，不区分大小写。还没设置时，第一个输入的名字会成为玩家名字；改名后玩家需用新名字重新进入。"
+      />
+      <div className="player-name-row">
+        <label>
+          当前名字
+          <input
+            name="playerName"
+            defaultValue={name}
+            placeholder="还没有玩家进入"
+            maxLength={40}
+            required
+          />
+        </label>
+        <button className="button primary" disabled={busy}>
+          保存名字
+        </button>
+      </div>
+    </form>
   );
 }
 function SettingsForm({
@@ -985,7 +1033,6 @@ function SettingsForm({
   ];
   return (
     <>
-      <PageTitle title="把约定，设置成规则" subtitle="挑战设置" />
       {pending && (
         <div className="info-banner">
           <Clock3 size={18} />{" "}

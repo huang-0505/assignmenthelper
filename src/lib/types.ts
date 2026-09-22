@@ -82,6 +82,8 @@ export type Audit = {
 export type GameState = {
   version: 1;
   startedOn: string;
+  /** Claimed by the first name entered at the player entrance; later entries must match it. */
+  playerName?: string;
   settings: Settings;
   nextSettings?: Settings;
   days: Record<string, Day>;

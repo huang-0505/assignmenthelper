@@ -7,6 +7,7 @@ import {
   errorResponse,
   HttpError,
   isDemo,
+  member,
 } from "@/lib/server/supabase";
 import { snapshot, transact } from "@/lib/server/repository";
 export const maxDuration = 60;
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
       now = new Date().toISOString();
     let freshAnswer = false;
     let state = await transact((s) => {
+      member(s, user);
       freshAnswer = !s.audit.some((a) => a.id === action.id);
       applyAction(s, action, user.role, user.id, now, bank);
     }, now);
@@ -48,7 +50,7 @@ export async function POST(request: Request) {
       );
     }
     const finalNow = new Date().toISOString();
-    return Response.json(snapshot(state, user, finalNow));
+    return Response.json(snapshot(state, member(state, user), finalNow));
   } catch (error) {
     return errorResponse(error);
   }

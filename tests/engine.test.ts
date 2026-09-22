@@ -452,6 +452,19 @@ describe("validated mutations", () => {
       ),
     ).toThrow("权限");
   });
+  it("lets only the referee rename the player", () => {
+    const s = game(),
+      rename = {
+        type: "playerName" as const,
+        id: crypto.randomUUID(),
+        name: "Bella",
+      };
+    expect(() =>
+      applyAction(s, rename, "player", "p", noon(s.startedOn), bank),
+    ).toThrow("权限");
+    applyAction(s, rename, "referee", "r", noon(s.startedOn), bank);
+    expect(s.playerName).toBe("Bella");
+  });
   it("rejects backdated submissions at midnight", () => {
     const s = game();
     expect(() =>
