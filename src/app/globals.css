@@ -5191,6 +5191,52 @@ body {
   color: var(--amber);
 }
 
+/* Her BQ story, told out loud: record, listen back, hand it to the referee. */
+.voice-recorder {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  background: #f4f6fb;
+}
+.voice-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.voice-head small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.voice-live,
+.voice-review,
+.voice-saved {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.voice-live {
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+.voice-live .rec-dot {
+  animation: pulse 1s ease-in-out infinite alternate;
+}
+.voice-recorder audio,
+.voice-player {
+  max-width: 100%;
+  height: 40px;
+}
+.voice-saved span {
+  font-size: 13px;
+  color: var(--green);
+  font-weight: 750;
+}
+
 /* Tasks that only earn points, never the streak. */
 .bonus-tag {
   margin-left: auto;

@@ -314,12 +314,22 @@ export function DayDetail({
           <h3>BQ · {day.bq.stage === 1 ? "STAR 草稿" : "口述练习"}</h3>
           <p lang="en">{bq?.prompt}</p>
           <p className="answer-text">{day.bq.text || "尚未填写"}</p>
+          {day.bq.voice && (
+            <audio
+              className="voice-player"
+              controls
+              preload="none"
+              src={`/api/bq/voice?date=${date}`}
+            />
+          )}
           <span className="muted">
-            {day.bq.practiced
-              ? "已确认大声练习"
-              : day.bq.stage === 2
-                ? "尚未确认练习"
-                : "口述安排在后续日期"}
+            {day.bq.voice
+              ? `她录了 ${day.bq.voice.seconds} 秒口述，听听看`
+              : day.bq.practiced
+                ? "已确认大声练习"
+                : day.bq.stage === 2
+                  ? "尚未确认练习"
+                  : "口述安排在后续日期"}
           </span>
         </div>
       )}

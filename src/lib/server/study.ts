@@ -314,3 +314,59 @@ export async function removeImage(path: string) {
   await ensureBucket();
   await adminClient().storage.from(BUCKET).remove([path]);
 }
+
+// Her BQ recordings live in a second private bucket, for the referee's ears only.
+const VOICE_BUCKET = "voice-media";
+export const VOICE_TYPES = [
+  "audio/webm",
+  "audio/mp4",
+  "audio/ogg",
+  "audio/mpeg",
+] as const;
+export type VoiceType = (typeof VOICE_TYPES)[number];
+let voiceBucket: Promise<void> | null = null;
+function ensureVoiceBucket() {
+  voiceBucket ??= (async () => {
+    const storage = adminClient().storage;
+    if (!(await storage.getBucket(VOICE_BUCKET)).error) return;
+    const { error } = await storage.createBucket(VOICE_BUCKET, {
+      public: false,
+      fileSizeLimit: "6MB",
+      allowedMimeTypes: [...VOICE_TYPES],
+    });
+    if (error && !/exist/i.test(error.message))
+      throw new Error("无法创建录音存储空间");
+  })().catch((error) => {
+    voiceBucket = null;
+    throw error;
+  });
+  return voiceBucket;
+}
+/** Accepts only audio that looks like what it claims to be, within `maxBytes`. */
+export function audioBytes(base64: string, mime: VoiceType, maxBytes: number) {
+  const bytes = Buffer.from(base64, "base64");
+  if (bytes.length < 200 || bytes.length > maxBytes)
+    throw new Error("录音大小不符合要求");
+  const looksRight = {
+    "audio/webm": bytes.readUInt32BE(0) === 0x1a45dfa3,
+    "audio/mp4": bytes.subarray(4, 8).toString("latin1") === "ftyp",
+    "audio/ogg": bytes.subarray(0, 4).toString("latin1") === "OggS",
+    "audio/mpeg":
+      bytes.subarray(0, 3).toString("latin1") === "ID3" ||
+      (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0),
+  }[mime];
+  if (!looksRight) throw new Error("录音格式不对，请重新录一段");
+  return bytes;
+}
+export async function putVoice(path: string, bytes: Uint8Array, mime: string) {
+  await ensureVoiceBucket();
+  const { error } = await adminClient()
+    .storage.from(VOICE_BUCKET)
+    .upload(path, bytes, { contentType: mime, upsert: true });
+  if (error) throw new Error("录音保存失败，请重试");
+}
+export async function getVoice(path: string) {
+  await ensureVoiceBucket();
+  const { data } = await adminClient().storage.from(VOICE_BUCKET).download(path);
+  return data;
+}

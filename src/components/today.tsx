@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   ArrowUpRight,
   BookOpen,
@@ -21,6 +22,7 @@ import {
   Send,
   Snowflake,
   Sparkles,
+  Square,
   Star,
   Trash2,
   Tv,
@@ -902,7 +904,8 @@ function Bq({ day }: { day: Day }) {
                   placeholder="Situation: …&#10;Task: …&#10;Action: …&#10;Result: …"
                 />
               </label>
-              {task.stage === 2 && (
+              {task.stage === 2 && <VoiceRecorder day={day} />}
+              {task.stage === 2 && !task.voice && (
                 <label className="checkbox-label">
                   <input
                     type="checkbox"
@@ -910,7 +913,7 @@ function Bq({ day }: { day: Day }) {
                     onChange={(e) => setPracticed(e.target.checked)}
                     required
                   />{" "}
-                  我已经大声完整回答了一遍
+                  没法录音？勾选也行：我已经大声完整回答了一遍
                 </label>
               )}
               <button className="button primary" disabled={busy}>
@@ -966,6 +969,154 @@ function Bq({ day }: { day: Day }) {
         </form>
       )}
     </section>
+  );
+}
+type Recording = "idle" | "recording" | "recorded" | "uploading";
+const RECORD_LIMIT = 90;
+/** She tells the story out loud and hands the recording to the referee; at the practice stage that completes the task. */
+function VoiceRecorder({ day }: { day: Day }) {
+  const { refresh } = useGame(),
+    voice = day.bq?.voice;
+  const [status, setStatus] = useState<Recording>("idle"),
+    [seconds, setSeconds] = useState(0),
+    [preview, setPreview] = useState<string | null>(null),
+    [error, setError] = useState("");
+  const recorder = useRef<MediaRecorder | null>(null),
+    chunks = useRef<Blob[]>([]),
+    taken = useRef<Blob | null>(null),
+    timer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const supported = typeof MediaRecorder !== "undefined";
+  // Chrome and Firefox record WebM/Opus; Safari records MP4.
+  const mime =
+    supported && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm"
+      : "audio/mp4";
+  function stop() {
+    clearInterval(timer.current);
+    if (recorder.current?.state === "recording") recorder.current.stop();
+  }
+  async function start() {
+    setError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream, {
+        mimeType: mime === "audio/webm" ? "audio/webm;codecs=opus" : "audio/mp4",
+      });
+      chunks.current = [];
+      rec.ondataavailable = (e) => chunks.current.push(e.data);
+      rec.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunks.current, { type: mime });
+        taken.current = blob;
+        setPreview(URL.createObjectURL(blob));
+        setStatus("recorded");
+      };
+      rec.start(250);
+      recorder.current = rec;
+      const startedAt = Date.now();
+      setSeconds(0);
+      setStatus("recording");
+      timer.current = setInterval(() => {
+        const s = Math.floor((Date.now() - startedAt) / 1000);
+        setSeconds(s);
+        if (s >= RECORD_LIMIT) stop();
+      }, 250);
+    } catch {
+      setError("没拿到麦克风，或者这个浏览器不支持录音。可以直接勾选下面的确认。");
+    }
+  }
+  async function upload() {
+    if (!taken.current) return;
+    setStatus("uploading");
+    const audio = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1]);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(taken.current!);
+    });
+    try {
+      const res = await fetch("/api/bq/voice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date: day.date,
+          mime,
+          seconds: Math.max(1, seconds),
+          audio,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast.success("录音已交给裁判，今天的口述完成了");
+      await refresh();
+      taken.current = null;
+      setPreview(null);
+      setStatus("idle");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "上传失败，请重试");
+      setStatus("recorded");
+    }
+  }
+  return (
+    <div className="voice-recorder">
+      <div className="voice-head">
+        <Mic size={16} />
+        <strong>录一段给裁判听</strong>
+        <small>最多 {RECORD_LIMIT} 秒。讲一遍，比勾选更有用。</small>
+      </div>
+      {voice && status === "idle" && (
+        <div className="voice-saved">
+          <audio controls preload="none" src={`/api/bq/voice?date=${day.date}`} />
+          <span>
+            <Check size={14} /> 已交给裁判 · {voice.seconds} 秒
+          </span>
+        </div>
+      )}
+      {status === "idle" && (
+        <div>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => void start()}
+            disabled={!supported}
+          >
+            <Mic size={16} /> {voice ? "重新录一段" : "开始录音"}
+          </button>
+        </div>
+      )}
+      {status === "recording" && (
+        <div className="voice-live">
+          <span className="rec-dot" aria-hidden="true" /> 录音中 {seconds} 秒
+          <button type="button" className="button primary" onClick={stop}>
+            <Square size={14} /> 停止
+          </button>
+        </div>
+      )}
+      {status === "recorded" && preview && (
+        <div className="voice-review">
+          <audio controls src={preview} />
+          <button type="button" className="button primary" onClick={() => void upload()}>
+            交给裁判
+          </button>
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => {
+              setPreview(null);
+              setStatus("idle");
+            }}
+          >
+            重录
+          </button>
+        </div>
+      )}
+      {status === "uploading" && <p className="muted small">正在上传…</p>}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 function English({ day }: { day: Day }) {

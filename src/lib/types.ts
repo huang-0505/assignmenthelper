@@ -70,6 +70,8 @@ export type BqTask = {
   text: string;
   practiced: boolean;
   completedAt?: string;
+  /** A recording of her telling the story, kept in private storage for the referee to hear. */
+  voice?: { at: string; seconds: number; mime: string };
 };
 export type Day = {
   date: string;
