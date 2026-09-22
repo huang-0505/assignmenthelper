@@ -158,9 +158,9 @@ describe("strike aggregation", () => {
 });
 
 describe("session timing", () => {
-  it("offers three preset lengths plus the referee's default, once each", () => {
-    expect(minuteChoices({ minutes: 30 })).toEqual([25, 30, 50, 90]);
-    expect(minuteChoices({ minutes: 50 })).toEqual([25, 50, 90]);
+  it("offers only the three supported lengths, including with old defaults", () => {
+    expect(minuteChoices({ minutes: 30 })).toEqual([20, 30, 45]);
+    expect(minuteChoices({ minutes: 50 })).toEqual([20, 30, 45]);
   });
   const running = (overrides: Partial<StudySession>) =>
     session({ endedAt: null, endReason: null, ...overrides });
@@ -269,12 +269,21 @@ describe("settlement", () => {
     expect(() =>
       applyAction(s, note("加油"), "player", "p", at(2), bank),
     ).toThrow("权限");
-    applyAction(s, note("今天的 SQL 题偏难，写清楚思路就行"), "referee", "r", at(2), bank);
+    applyAction(
+      s,
+      note("今天的 SQL 题偏难，写清楚思路就行"),
+      "referee",
+      "r",
+      at(2),
+      bank,
+    );
     expect(s.coach?.note).toEqual({
       text: "今天的 SQL 题偏难，写清楚思路就行",
       at: at(2),
     });
-    expect(s.audit.at(-1)?.detail).toBe("给她留言：今天的 SQL 题偏难，写清楚思路就行");
+    expect(s.audit.at(-1)?.detail).toBe(
+      "给她留言：今天的 SQL 题偏难，写清楚思路就行",
+    );
     applyAction(s, note(""), "referee", "r", at(3), bank);
     expect(s.coach?.note).toBeUndefined();
     expect(s.audit.at(-1)?.detail).toBe("清除了留言");

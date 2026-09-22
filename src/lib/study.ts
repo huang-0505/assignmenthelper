@@ -9,8 +9,11 @@ export type StudyRules = {
   /** Random gap between coach inspections, in minutes. */
   minGap: number;
   maxGap: number;
-  /** Bonus points for a passed session, at most once per met day. */
+  /** Legacy reward; preserved on existing session snapshots. */
   points: number;
+  /** New sessions snapshot the rewards for the three duration tiers. */
+  rewardTiers?: Record<StudyMinutes, number>;
+  dailyRewardLimit?: number;
   /** Dollars added to the penalty pool for a failed session. */
   penalty: number;
   pauseMinutes: number;
@@ -33,6 +36,20 @@ export type StudyRules = {
  * reminder, and it takes several reminders to fail. Looking away is off, since reading from
  * paper or thinking looks the same to a camera.
  */
+export const STUDY_MINUTES = [20, 30, 45] as const;
+export type StudyMinutes = (typeof STUDY_MINUTES)[number];
+export const STUDY_REWARD_LIMIT = 5;
+export const DEFAULT_STUDY_REWARDS = { 20: 15, 30: 25, 45: 40 };
+export const STUDY_GOALS = [
+  "投递申请",
+  "Networking",
+  "技术学习",
+  "面试 / BQ",
+  "项目练习",
+  "英语学习",
+  "自由学习",
+] as const;
+
 export const DEFAULT_STUDY: StudyRules = {
   minutes: 30,
   maxStrikes: 3,
@@ -40,6 +57,8 @@ export const DEFAULT_STUDY: StudyRules = {
   minGap: 3,
   maxGap: 8,
   points: 25,
+  rewardTiers: DEFAULT_STUDY_REWARDS,
+  dailyRewardLimit: STUDY_REWARD_LIMIT,
   penalty: 5,
   pauseMinutes: 5,
   absentSeconds: 180,
@@ -56,6 +75,7 @@ export const DEFAULT_STUDY: StudyRules = {
 export const withDefaults = (rules?: Partial<StudyRules>): StudyRules => ({
   ...DEFAULT_STUDY,
   ...rules,
+  rewardTiers: { ...DEFAULT_STUDY_REWARDS, ...rules?.rewardTiers },
 });
 export const SAMPLE_MS = 2000;
 export const PHONE_WINDOW = 5;
@@ -78,9 +98,16 @@ export const COACH_MOOD_LABEL: Record<CoachMood, string> = {
   angry: "看到走神",
   pleased: "一切正常",
 };
-/** Session lengths she can pick before starting: three presets plus the referee's default. */
-export function minuteChoices(rules: Pick<StudyRules, "minutes">) {
-  return [...new Set([25, 50, 90, rules.minutes])].sort((a, b) => a - b);
+/** The duration choices are fixed; old session lengths remain in their snapshots. */
+export function minuteChoices(_rules?: Pick<StudyRules, "minutes">) {
+  void _rules;
+  return [...STUDY_MINUTES];
+}
+export function studyPoints(rules: StudyRules, minutes: number) {
+  return (
+    (rules.rewardTiers ?? DEFAULT_STUDY_REWARDS)[minutes as StudyMinutes] ??
+    rules.points
+  );
 }
 /** The referee can open the door again only after this long. */
 export const VISIT_GAP_MS = 20_000;
@@ -256,6 +283,11 @@ export type StudyView = {
 };
 
 export type StudyOutcome = {
+  id?: string;
+  startedAt?: string;
+  minutes?: number;
+  tiered?: boolean;
+  dailyRewardLimit?: number;
   day: string;
   passed: boolean;
   failed: boolean;
@@ -266,12 +298,50 @@ export type StudyOutcome = {
 export function studyOutcome(session: StudySession, now: string): StudyOutcome {
   const r = studyResult(session, now);
   return {
+    id: session.id,
+    startedAt: session.startedAt,
+    minutes: session.rules.minutes,
+    tiered: Boolean(session.rules.rewardTiers),
+    dailyRewardLimit: session.rules.dailyRewardLimit ?? STUDY_REWARD_LIMIT,
     day: session.day,
     passed: r.status === "passed",
     failed: r.status === "failed" || r.struckOut,
     points: session.rules.points,
     penalty: session.rules.penalty,
   };
+}
+
+/** Replay rewards in start order: all duration tiers share the day's reward limit.
+ * Legacy-only days retain their original once-per-day reward. A legacy reward on the
+ * upgrade day also consumes one slot. No duplicate ID can earn or consume twice.
+ */
+export function studyRewards(outcomes: StudyOutcome[]) {
+  const ordered = [...outcomes].sort(
+    (a, b) =>
+      (a.startedAt ?? "").localeCompare(b.startedAt ?? "") ||
+      (a.id ?? "").localeCompare(b.id ?? ""),
+  );
+  const limits = new Map<string, number>();
+  for (const o of ordered)
+    if (o.tiered && !limits.has(o.day))
+      limits.set(o.day, o.dailyRewardLimit ?? STUDY_REWARD_LIMIT);
+  const used = new Map<string, number>(),
+    seen = new Set<string>(),
+    legacyPaid = new Set<string>();
+  return ordered.flatMap((o) => {
+    if (o.id && seen.has(o.id)) return [];
+    if (o.id) seen.add(o.id);
+    if (!o.passed) return [];
+    const count = used.get(o.day) ?? 0;
+    if (
+      count >= (limits.get(o.day) ?? 1) ||
+      (!o.tiered && legacyPaid.has(o.day))
+    )
+      return [];
+    used.set(o.day, count + 1);
+    if (!o.tiered) legacyPaid.add(o.day);
+    return [o];
+  });
 }
 
 export type Verdict = {

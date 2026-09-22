@@ -104,7 +104,17 @@ export type Audit = {
   date?: string;
   detail: string;
 };
+export type WeeklyPlan = {
+  weekOf: string;
+  goal: string;
+  outreach: string;
+  focus: string;
+  days: string[];
+  success: string;
+  updatedAt: string;
+};
 export type GameState = {
+  weeklyPlans?: Record<string, WeeklyPlan>;
   version: 1;
   startedOn: string;
   /** Claimed by the first name entered at the player entrance; later entries must match it. */

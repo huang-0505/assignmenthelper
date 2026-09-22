@@ -38,6 +38,7 @@ import {
   localKind,
   localReason,
   minuteChoices,
+  studyPoints,
   studyResult,
   VISIT_GAP_MS,
   weakSummary,
@@ -59,11 +60,11 @@ const SUMMARY: Question = {
   category: "Project",
   difficulty: "Easy",
   prompt:
-    "In three short lines, summarize what you learned in this study session.",
+    "In three short lines, summarize your focused work in this session. Valid work includes job applications, professional networking, resume or project work, interview preparation and learning. Switching between these activities is allowed.",
   rubric: [
-    "Names the concrete topic or material studied",
-    "States at least one specific takeaway, method, or fact learned",
-    "Notes a next step, open question, or how it applies to interviews",
+    "Names concrete learning or job-search activities completed",
+    "States a specific takeaway, result, progress made, or blocker encountered",
+    "Notes a next step, open question, or follow-up",
   ],
 };
 const sessionId = z.uuid(),
@@ -120,11 +121,7 @@ const bodySchema = z.discriminatedUnion("type", [
   }),
 ]);
 type Body = z.infer<typeof bodySchema>;
-const REFEREE_ONLY = new Set<Body["type"]>([
-  "overturn",
-  "coachPhoto",
-  "visit",
-]);
+const REFEREE_ONLY = new Set<Body["type"]>(["overturn", "coachPhoto", "visit"]);
 
 const today = (state: GameState) => Object.keys(state.days).sort().at(-1)!;
 function todayRules(state: GameState): StudyRules {
@@ -228,10 +225,18 @@ async function handle(
       if (sessions.some((s) => !s.endedAt))
         throw new HttpError("你还有一场学习没有结束", 409);
       const base = todayRules(state);
-      if (body.minutes && !minuteChoices(base).includes(body.minutes))
+      if (
+        body.minutes !== undefined &&
+        !minuteChoices(base).includes(body.minutes as 20 | 30 | 45)
+      )
         throw new HttpError("这个时长不在可选范围内", 400);
-      // Her chosen length is part of this session's rules; the points and penalty stay the same.
-      const rules = { ...base, minutes: body.minutes ?? base.minutes };
+      // Freeze the selected duration and reward on this session; never trust client points.
+      const minutes =
+        body.minutes ??
+        (minuteChoices().includes(base.minutes as 20 | 30 | 45)
+          ? base.minutes
+          : 30);
+      const rules = { ...base, minutes, points: studyPoints(base, minutes) };
       await createSession({
         id: crypto.randomUUID(),
         day: today(state),
@@ -322,8 +327,7 @@ async function handle(
     case "visit": {
       if (result.status === "paused")
         throw new HttpError("她暂停了，摄像头关着，等她回来再去", 409);
-      if (result.status !== "active")
-        throw new HttpError("她已经下课了", 409);
+      if (result.status !== "active") throw new HttpError("她已经下课了", 409);
       const last = session.visits.at(-1);
       if (last && Date.parse(now) - Date.parse(last.at) < VISIT_GAP_MS)
         throw new HttpError("刚去过，过一会儿再去", 429);

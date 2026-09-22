@@ -1,6 +1,8 @@
 "use client";
 import "@fontsource-variable/caveat";
 import Link from "next/link";
+import { NetworkingLink } from "./networking-link";
+import { WeeklyPlanCard } from "./weekly-plan";
 import {
   useCallback,
   useEffect,
@@ -27,6 +29,11 @@ import {
   UserRound,
 } from "lucide-react";
 import {
+  STUDY_GOALS,
+  STUDY_REWARD_LIMIT,
+  studyPoints,
+  studyRewards,
+  studyOutcome,
   calibrate,
   COACH_MOOD_LABEL,
   COACH_MOODS,
@@ -180,7 +187,7 @@ export function Study() {
     <div className="study">
       <div className="page-title">
         <div>
-          <p className="date-line">可选加分 · 30 分钟专注</p>
+          <p className="date-line">选好目标，让这段时间有收获</p>
           <h1>
             学习模式
             <span className="title-dot" />
@@ -259,13 +266,24 @@ function PlayerStudy({
   const session = view.sessions.find((s) => s.id === sessionId) ?? null;
   const [consent, setConsent] = useState(() => saved(KEYS.consent)),
     [consentOpen, setConsentOpen] = useState(false),
-    [wantAi, setWantAi] = useState(() => saved(KEYS.ai) !== "0"),
+    [wantAi, setWantAi] = useState(() => saved(KEYS.ai) === "1"),
     [wantScreen, setWantScreen] = useState(() => saved(KEYS.screen) === "1"),
     [share, setShare] = useState(() => saved(KEYS.share) === "1"),
     [knockOn, setKnockOn] = useState(() => saved(KEYS.knock) === "1"),
     [bigCam, setBigCam] = useState(() => saved(KEYS.selfView) === "big"),
     [goal, setGoal] = useState(""),
-    [minutes, setMinutes] = useState(view.rules.minutes);
+    [goals, setGoals] = useState<string[]>(["自由学习"]),
+    [minutes, setMinutes] = useState(
+      minuteChoices().includes(view.rules.minutes as 20 | 30 | 45)
+        ? view.rules.minutes
+        : 30,
+    );
+  const combinedGoal = [...goals, goal.trim()].filter(Boolean).join("；");
+  const rewardLimit = view.rules.dailyRewardLimit ?? STUDY_REWARD_LIMIT;
+  const rewardsToday = studyRewards(
+    view.sessions.map((s) => studyOutcome(s, view.serverTime)),
+  ).filter((o) => o.day === snapshot.today);
+  const rewardRemaining = Math.max(0, rewardLimit - rewardsToday.length);
   const aiOn = Boolean(view.ai) && wantAi && consent === "yes";
   const [baseline, setBaseline] = useState<Pose | null>(() => {
     try {
@@ -452,7 +470,7 @@ function PlayerStudy({
       ai: aiOn,
       screen: aiOn && screenOn,
       share,
-      goal: goal.trim() || undefined,
+      goal: combinedGoal || "自由学习",
       minutes,
     });
     const s = reply?.sessions.find((x) => !x.endedAt);
@@ -710,7 +728,96 @@ function PlayerStudy({
 
       {phase === "intro" && (
         <>
-          <Intro view={view} onStart={begin}>
+          <WeeklyPlanCard />
+          <section className="study-intention white-panel">
+            <div className="section-heading">
+              <div>
+                <h2>这一场，想做些什么？</h2>
+                <p>
+                  可以多选，也可以途中切换任务。投递、联系、读书、练题都算认真投入。
+                </p>
+              </div>
+            </div>
+            <div
+              className="study-goal-choices"
+              role="group"
+              aria-label="本场目标（可多选）"
+            >
+              {STUDY_GOALS.map((label) => (
+                <button
+                  type="button"
+                  key={label}
+                  aria-pressed={goals.includes(label)}
+                  onClick={() => {
+                    const next = goals.includes(label)
+                      ? goals.filter((g) => g !== label)
+                      : [...goals.filter((g) => g !== "自由学习"), label];
+                    if (
+                      [...next, goal.trim()].filter(Boolean).join("；").length >
+                      80
+                    ) {
+                      toast.error("目标说明较长，请先缩短一点再添加目标");
+                      return;
+                    }
+                    setGoals(next);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {goals.includes("Networking") && <NetworkingLink />}
+            <label className="goal-field">
+              <span>
+                给这场补一句目标 <small>可选</small>
+              </span>
+              <input
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
+                maxLength={Math.max(
+                  0,
+                  80 - goals.join("；").length - (goals.length ? 1 : 0),
+                )}
+                placeholder="例如：投两份岗位，再复盘项目；途中可以灵活调整"
+              />
+            </label>
+            <fieldset className="duration-options">
+              <legend>想投入多久？</legend>
+              <div className="duration-choices">
+                {minuteChoices().map((m) => (
+                  <label key={m} className={m === minutes ? "selected" : ""}>
+                    <input
+                      type="radio"
+                      name="study-duration"
+                      value={m}
+                      checked={m === minutes}
+                      onChange={() => setMinutes(m)}
+                    />
+                    <strong>
+                      {m}
+                      <small> 分钟</small>
+                    </strong>
+                    <span>
+                      {rewardRemaining
+                        ? `+${studyPoints(view.rules, m)} 积分`
+                        : "继续学习 · 本场不加分"}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <p className="study-reward-budget">
+              今天还有{" "}
+              <b>
+                {rewardRemaining} / {rewardLimit}
+              </b>{" "}
+              次奖励名额 · 三种时长合计。
+              {rewardRemaining
+                ? "通过后占用名额，当天最低目标完成后积分到账。"
+                : "今日奖励名额已用完，仍可继续学习并留下记录。"}
+            </p>
+          </section>
+          <Intro view={view} minutes={minutes} onStart={begin}>
             <Switch
               checked={aiOn}
               disabled={!view.ai}
@@ -880,35 +987,14 @@ function PlayerStudy({
                 <h2>
                   <Check size={20} /> 校准完成
                 </h2>
-                <label className="goal-field">
-                  <span>
-                    这场学什么<small>可选，写给自己和裁判看</small>
-                  </span>
-                  <input
-                    value={goal}
-                    onChange={(e) => setGoal(e.target.value)}
-                    maxLength={80}
-                    placeholder="例如：SQL 窗口函数，或者复盘上周的 ML 题"
-                  />
-                </label>
-                <div
-                  className="minute-picker"
-                  role="radiogroup"
-                  aria-label="学习时长"
-                >
-                  {minuteChoices(view.rules).map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      role="radio"
-                      aria-checked={m === minutes}
-                      className={m === minutes ? "on" : ""}
-                      onClick={() => setMinutes(m)}
-                    >
-                      {m} 分钟
-                    </button>
-                  ))}
-                </div>
+                <p className="ready-intention">
+                  <b>{combinedGoal || "自由学习"}</b>
+                  <br />
+                  {minutes} 分钟 ·{" "}
+                  {rewardRemaining
+                    ? `通过 +${studyPoints(view.rules, minutes)} 积分`
+                    : "今日奖励名额已用完，本场不加分"}
+                </p>
                 <p className="muted">
                   {view.rules.maxStrikes}{" "}
                   次违规算失败。教练会在你看不到的时候来查岗。
@@ -1040,10 +1126,12 @@ function strictReminders(r: StudyRules) {
 }
 function Intro({
   view,
+  minutes,
   onStart,
   children,
 }: {
   view: StudyView;
+  minutes: number;
   onStart: () => void;
   children: ReactNode;
 }) {
@@ -1057,7 +1145,7 @@ function Intro({
             <StrikeMarks used={0} max={r.maxStrikes} />
           </div>
           <div className="board-clock">
-            {String(r.minutes).padStart(2, "0")}:00
+            {String(minutes).padStart(2, "0")}:00
           </div>
           <p className="board-note">{boardNote(r)}</p>
         </div>
@@ -1072,8 +1160,10 @@ function Intro({
           <dl>
             <dt>通过</dt>
             <dd>
-              当天最低目标完成时，额外 +{r.points}{" "}
-              积分（每天最多一次）。不影响当天是否达标。
+              当天最低目标完成时，按所选时长奖励 {studyPoints(r, minutes)}{" "}
+              积分。三种时长每天合计最多奖励{" "}
+              {r.dailyRewardLimit ?? STUDY_REWARD_LIMIT}{" "}
+              次。不影响当天是否达标。
             </dd>
             <dt>失败</dt>
             <dd>
@@ -1108,7 +1198,7 @@ function Intro({
           <h2>这次怎么检查</h2>
           {children}
           <button className="button primary full" onClick={onStart}>
-            开始晚自习
+            准备开始 {minutes} 分钟
           </button>
         </section>
       </div>
@@ -1286,9 +1376,7 @@ function Hud({
         </div>
       )}
       <section className="study-hero live">
-        <section
-          className={`study-board running ${paused ? "is-paused" : ""}`}
-        >
+        <section className={`study-board running ${paused ? "is-paused" : ""}`}>
           <div className="board-top">
             <span>{paused ? "暂停中 · 必须在这之前回来" : "距下课还有"}</span>
             <StrikeMarks
@@ -1393,6 +1481,10 @@ function Hud({
           )}
         </div>
       </div>
+      <NetworkingLink />
+      <p className="muted small">
+        去其他网站学习时，请保留这个学习标签页和摄像头。不要关闭本页；设备休眠或连接中断可能影响本场记录。
+      </p>
       <div className="hud-actions">
         {paused ? (
           <button className="button primary" onClick={onResume}>
@@ -1432,8 +1524,8 @@ function SummaryForm({
       <h2>下课了。用三行写下你学到了什么</h2>
       <p className="muted">
         {withDefaults(session.rules).strict
-          ? "学了什么、一个具体的收获、下一步。AI 会按这三点打分，低于 3 分记 1 次提醒。"
-          : "学了什么、一个具体的收获、下一步。写给自己看，只有空洞、和学习无关的总结才会记提醒。"}
+          ? "做了什么、一个具体的收获或进展、下一步。AI 会按这三点打分，低于 3 分记 1 次提醒。"
+          : "做了什么、一个具体的收获或进展、下一步。写给自己看，只有空洞、和学习无关的总结才会记提醒。"}
       </p>
       <form
         className="stack-form"
@@ -1481,6 +1573,9 @@ function SessionList({
   const [overturning, setOverturning] = useState<string | null>(null),
     [reason, setReason] = useState("");
   const sessions = view.sessions.slice(0, referee ? 60 : 10);
+  const eligible = studyRewards(
+    view.sessions.map((s) => studyOutcome(s, view.serverTime)),
+  );
   if (!sessions.length)
     return (
       <section className="white-panel session-list empty">
@@ -1513,8 +1608,7 @@ function SessionList({
                     {s.rules.maxStrikes}
                     {counted.length > 0 &&
                       ` · ${[...new Set(counted.map((x) => SOURCE_LABEL[x.source]))].join("、")}`}
-                    {s.visits.length > 0 &&
-                      ` · 裁判来过 ${s.visits.length} 次`}
+                    {s.visits.length > 0 && ` · 裁判来过 ${s.visits.length} 次`}
                   </span>
                   <span className="session-layers">
                     {s.layers.ai && <span title="AI 查岗">AI</span>}
@@ -1523,6 +1617,13 @@ function SessionList({
                   </span>
                 </summary>
                 <div className="session-body">
+                  {r.status === "passed" && (
+                    <p className="session-reward">
+                      {eligible.some((o) => o.id === s.id)
+                        ? `本场奖励 ${s.rules.points} 积分 · 当天达标后计入总分`
+                        : "本场已完成，超出每日奖励次数，不再加分"}
+                    </p>
+                  )}
                   {s.goal && (
                     <p className="session-goal">
                       <b>这场学的</b>
@@ -1726,14 +1827,10 @@ function RefereeStudy({
     <>
       <section className="study-hero referee">
         {live ? (
-          <div
-            className={`study-board running ${paused ? "is-paused" : ""}`}
-          >
+          <div className={`study-board running ${paused ? "is-paused" : ""}`}>
             <div className="board-top">
               <span>
-                {paused
-                  ? "她暂停了，摄像头关着"
-                  : "她正在晚自习 · 距下课还有"}
+                {paused ? "她暂停了，摄像头关着" : "她正在晚自习 · 距下课还有"}
               </span>
               <StrikeMarks
                 used={Math.min(live.result.effective, live.rules.maxStrikes)}

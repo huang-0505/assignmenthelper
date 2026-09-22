@@ -1,5 +1,7 @@
 "use client";
 import Link from "next/link";
+import { NetworkingLink } from "./networking-link";
+import { WeeklyPlanCard } from "./weekly-plan";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -101,6 +103,7 @@ export function Today() {
           </span>
         </div>
       </div>
+      <WeeklyPlanCard />
       {summary.pool >= state.settings.penaltyThreshold && (
         <div className="penalty-banner">
           <Gift />
@@ -489,6 +492,7 @@ function CountTask({
               ? "最低目标完成，继续可以加分"
               : `再${applications ? "投递" : "联系"} ${minimum - count} ${unit}，就能点亮这项任务`}
         </p>
+        {!applications && <NetworkingLink />}
         <div className="count-task-footer">
           <span>
             <Star size={13} /> {bonus} {applications ? "份" : "人"}额外 +
@@ -1000,7 +1004,8 @@ function VoiceRecorder({ day }: { day: Day }) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const rec = new MediaRecorder(stream, {
-        mimeType: mime === "audio/webm" ? "audio/webm;codecs=opus" : "audio/mp4",
+        mimeType:
+          mime === "audio/webm" ? "audio/webm;codecs=opus" : "audio/mp4",
       });
       chunks.current = [];
       rec.ondataavailable = (e) => chunks.current.push(e.data);
@@ -1022,7 +1027,9 @@ function VoiceRecorder({ day }: { day: Day }) {
         if (s >= RECORD_LIMIT) stop();
       }, 250);
     } catch {
-      setError("没拿到麦克风，或者这个浏览器不支持录音。可以直接勾选下面的确认。");
+      setError(
+        "没拿到麦克风，或者这个浏览器不支持录音。可以直接勾选下面的确认。",
+      );
     }
   }
   async function upload() {
@@ -1066,7 +1073,11 @@ function VoiceRecorder({ day }: { day: Day }) {
       </div>
       {voice && status === "idle" && (
         <div className="voice-saved">
-          <audio controls preload="none" src={`/api/bq/voice?date=${day.date}`} />
+          <audio
+            controls
+            preload="none"
+            src={`/api/bq/voice?date=${day.date}`}
+          />
           <span>
             <Check size={14} /> 已交给裁判 · {voice.seconds} 秒
           </span>
@@ -1095,7 +1106,11 @@ function VoiceRecorder({ day }: { day: Day }) {
       {status === "recorded" && preview && (
         <div className="voice-review">
           <audio controls src={preview} />
-          <button type="button" className="button primary" onClick={() => void upload()}>
+          <button
+            type="button"
+            className="button primary"
+            onClick={() => void upload()}
+          >
             交给裁判
           </button>
           <button
@@ -1144,9 +1159,7 @@ function English({ day }: { day: Day }) {
         </span>
         <div>
           <h2>英语表达和听力</h2>
-          <p>
-            每天看 {target} 集英文电视剧，看完记下来就算完成；多看不加分。
-          </p>
+          <p>每天看 {target} 集英文电视剧，看完记下来就算完成；多看不加分。</p>
         </div>
         <button
           className="icon-button"
@@ -1244,11 +1257,11 @@ function StudyCard() {
         <p>
           {passed
             ? met
-              ? `今天已通过，+${rules.points} 积分`
-              : `今天已通过，完成最低目标后 +${rules.points} 积分`
+              ? `今天已通过 ${passed} 场，奖励按所选时长计算`
+              : `今天已通过 ${passed} 场，完成最低目标后结算学习奖励`
             : failed
               ? `今天有 ${failed} 次没通过，可以再来一次`
-              : `开一场 ${rules.minutes} 分钟晚自习，通过 +${rules.points} 积分`}
+              : `选目标，学 20 / 30 / 45 分钟；每天合计最多奖励 ${rules.dailyRewardLimit ?? 5} 次`}
         </p>
       </span>
       <ChevronRight size={18} />

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   advance,
+  addDays,
   bqDone,
   completedBq,
   evaluate,
@@ -23,6 +24,11 @@ export const studyRulesSchema = z
     minGap: int(1, 30),
     maxGap: int(1, 60),
     points: int(0, 1000),
+    dailyRewardLimit: int(1, 20).optional(),
+    rewardTiers: z
+      .object({ 20: int(0, 1000), 30: int(0, 1000), 45: int(0, 1000) })
+      .refine((r) => r[20] < r[30] && r[30] < r[45], "较长时长的奖励必须更高")
+      .optional(),
     penalty: int(0, 1000),
     pauseMinutes: int(0, 30),
     absentSeconds: int(10, 1800),
@@ -91,6 +97,18 @@ const id = z.string().uuid();
 const common = { id, date: z.iso.date() };
 export const nameSchema = z.string().trim().min(1, "请输入名字").max(40);
 export const actionSchema = z.discriminatedUnion("type", [
+  z.object({
+    id,
+    type: z.literal("weeklyPlan"),
+    plan: z.object({
+      weekOf: z.iso.date(),
+      goal: z.string().trim().min(1).max(160),
+      outreach: z.string().trim().max(500),
+      focus: z.string().trim().max(500),
+      days: z.array(z.string().trim().max(300)).length(7),
+      success: z.string().trim().max(500),
+    }),
+  }),
   z.object({
     ...common,
     type: z.literal("log"),
@@ -195,6 +213,7 @@ export function applyAction(
     "playerName",
     "coachLines",
     "coachNote",
+    "weeklyPlan",
   ].includes(action.type);
   if (refereeAction !== (role === "referee"))
     throw new Error("你的角色没有这项操作的权限");
@@ -205,6 +224,16 @@ export function applyAction(
   const day = "date" in action ? state.days[action.date] : state.days[today];
   if (!day) throw new Error("找不到这一天的记录");
   switch (action.type) {
+    case "weeklyPlan": {
+      const current = weekKey(today);
+      if (![current, addDays(current, 7)].includes(action.plan.weekOf))
+        throw new Error("只能发布本周或下周计划");
+      state.weeklyPlans = {
+        ...state.weeklyPlans,
+        [action.plan.weekOf]: { ...action.plan, updatedAt: now },
+      };
+      break;
+    }
     case "log": {
       const field = action.kind === "application" ? "applications" : "contacts";
       if (day[field] + action.count > 10000)
@@ -338,23 +367,25 @@ export function applyAction(
     action: action.type,
     date: "date" in action ? action.date : undefined,
     detail:
-      action.type === "override"
-        ? `${action.score}/5: ${action.reason}`
-        : action.type === "settings"
-          ? "设置于下一训练日生效"
-          : action.type === "redeem"
-            ? "裁判确认已请客，清空已累计罚金"
-            : action.type === "playerName"
-              ? `玩家名字改为「${action.name}」`
-              : action.type === "episodes"
-                ? `看剧 ${action.count} 集`
-                : action.type === "coachLines"
-                  ? "修改了学习模式教练台词"
-                  : action.type === "coachNote"
-                    ? action.text
-                      ? `给她留言：${action.text}`
-                      : "清除了留言"
-                    : "已保存",
+      action.type === "weeklyPlan"
+        ? `发布了 ${action.plan.weekOf} 这一周的训练计划`
+        : action.type === "override"
+          ? `${action.score}/5: ${action.reason}`
+          : action.type === "settings"
+            ? "设置于下一训练日生效"
+            : action.type === "redeem"
+              ? "裁判确认已请客，清空已累计罚金"
+              : action.type === "playerName"
+                ? `玩家名字改为「${action.name}」`
+                : action.type === "episodes"
+                  ? `看剧 ${action.count} 集`
+                  : action.type === "coachLines"
+                    ? "修改了学习模式教练台词"
+                    : action.type === "coachNote"
+                      ? action.text
+                        ? `给她留言：${action.text}`
+                        : "清除了留言"
+                      : "已保存",
   });
 }
 

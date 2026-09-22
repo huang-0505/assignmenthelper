@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { Download } from "lucide-react";
 import { toast } from "sonner";
 import {
+  studyRewards,
+  studyOutcome,
   COACH_MOODS,
   KIND_LABEL,
   SOURCE_LABEL,
@@ -63,12 +65,7 @@ export function DoorWindow({
 }
 
 export type DoorStage =
-  | "idle"
-  | "approach"
-  | "peek"
-  | "window"
-  | "wide"
-  | "closing";
+  "idle" | "approach" | "peek" | "window" | "wide" | "closing";
 /**
  * Where the door settles for an event: an inspection peeks around it, good news is seen through
  * its window with the door shut again, and a caught lapse or the referee in person swings it open.
@@ -349,6 +346,15 @@ export function Poster({
           </div>
         )}
         <Stamp status={r.status} big />
+        {r.status === "passed" && (
+          <p className="session-reward">
+            {studyRewards(
+              view.sessions.map((s) => studyOutcome(s, view.serverTime)),
+            ).some((o) => o.id === session.id)
+              ? `本场奖励 ${session.rules.points} 积分 · 当天达标后计入总分`
+              : "今日奖励次数已用完，本场不加分"}
+          </p>
+        )}
         <footer>{name} · Offer Quest 学习模式</footer>
       </div>
       <button className="button primary" onClick={download} disabled={busy}>

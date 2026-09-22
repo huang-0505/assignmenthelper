@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { WeeklyPlanEditor } from "./weekly-plan";
 import { useState } from "react";
 import {
   Activity,
@@ -44,6 +45,8 @@ import type {
 } from "@/lib/types";
 import { toast } from "sonner";
 import {
+  STUDY_MINUTES,
+  DEFAULT_STUDY_REWARDS,
   COACH_MOODS,
   DEFAULT_COACH_LINES,
   withDefaults,
@@ -563,8 +566,7 @@ export function Stats() {
                     </span>
                     {d.question!.id.toUpperCase()} ·{" "}
                     {finalScore(latestAnswer(d))} 分 ·{" "}
-                    {addDays(d.date, RETRY_DAYS).slice(5).replace("-", "/")}{" "}
-                    起
+                    {addDays(d.date, RETRY_DAYS).slice(5).replace("-", "/")} 起
                   </li>
                 ))}
               </ul>
@@ -830,6 +832,7 @@ export function Referee() {
   return (
     <>
       <PageTitle title="做她最靠谱的加油官" subtitle="裁判工作台" />
+      <WeeklyPlanEditor />
       <NotePanel />
       <div className="referee-summary">
         <div>
@@ -1011,6 +1014,7 @@ const REFEREE_ACTIONS = [
   "coachNote",
   "studyOverturn",
   "studyVisit",
+  "weeklyPlan",
 ];
 /** The referee's one line for her Today page, written beside the face she will see it with. */
 function NotePanel() {
@@ -1325,19 +1329,23 @@ export function SettingsView() {
   );
 }
 type StudyField = {
-  key: Exclude<keyof StudyRules, "strict">;
+  key: Exclude<keyof StudyRules, "strict" | "rewardTiers">;
   label: string;
   min: number;
   max: number;
   step?: number;
 };
 const STUDY_FIELDS: StudyField[] = [
-  { key: "minutes", label: "每次时长（分钟）", min: 5, max: 120 },
+  {
+    key: "dailyRewardLimit",
+    label: "每天学习奖励次数（三种时长合计）",
+    min: 1,
+    max: 20,
+  },
   { key: "maxStrikes", label: "几次违规算失败", min: 1, max: 10 },
   { key: "warningsPerStrike", label: "几次提醒算 1 次违规", min: 1, max: 5 },
   { key: "minGap", label: "查岗间隔最短（分钟）", min: 1, max: 30 },
   { key: "maxGap", label: "查岗间隔最长（分钟）", min: 1, max: 60 },
-  { key: "points", label: "通过奖励积分", min: 0, max: 1000 },
   { key: "penalty", label: "失败罚金（美元）", min: 0, max: 1000 },
   {
     key: "pauseMinutes",
@@ -1654,12 +1662,19 @@ function SettingsForm({
             CORE_TASKS.map(([key]) => [key, form.get(`core-${key}`) === "on"]),
           ) as Settings["core"] & object;
           s.study = {
+            ...withDefaults(settings.study),
+            minutes: Number(form.get("study-default-minutes")),
+            rewardTiers: {
+              20: Number(form.get("reward-20")),
+              30: Number(form.get("reward-30")),
+              45: Number(form.get("reward-45")),
+            },
             ...(Object.fromEntries(
               [...STUDY_FIELDS, ...STUDY_DETECTION].map((f) => [
                 f.key,
                 Number(form.get(`study-${f.key}`)),
               ]),
-            ) as Omit<StudyRules, "strict">),
+            ) as Partial<StudyRules>),
             strict: form.get("study-strict") === "on",
           };
           void save(s);
@@ -1829,6 +1844,45 @@ function SettingsForm({
             title="学习模式（可选）"
             note="通过的学习在当天达标时额外加分；失败的罚金进请客基金。默认宽松：只有特别明显不在学习时才提醒，几次提醒折合 1 次违规。"
           />
+          <div className="settings-fields">
+            <label>
+              默认学习时长
+              <select
+                name="study-default-minutes"
+                defaultValue={
+                  STUDY_MINUTES.includes(
+                    settings.study?.minutes as 20 | 30 | 45,
+                  )
+                    ? settings.study?.minutes
+                    : 30
+                }
+              >
+                {STUDY_MINUTES.map((m) => (
+                  <option key={m} value={m}>
+                    {m} 分钟
+                  </option>
+                ))}
+              </select>
+            </label>
+            {STUDY_MINUTES.map((m) => (
+              <label key={m}>
+                {m} 分钟奖励积分
+                <input
+                  name={`reward-${m}`}
+                  type="number"
+                  min={0}
+                  max={1000}
+                  required
+                  defaultValue={
+                    settings.study?.rewardTiers?.[m] ?? DEFAULT_STUDY_REWARDS[m]
+                  }
+                />
+              </label>
+            ))}
+          </div>
+          <p className="muted">
+            三种时长共用每日奖励次数，较长时长的积分应更高；超过次数仍可继续学习。已有场次保留开始时的奖励。
+          </p>
           <StudyInputs
             fields={STUDY_FIELDS}
             rules={withDefaults(settings.study)}

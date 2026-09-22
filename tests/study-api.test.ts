@@ -259,6 +259,36 @@ function useRules(rules: Partial<StudyRules>) {
 }
 
 describe("study sessions", () => {
+  it.each([20, 30, 45])(
+    "snapshots server rewards for %i minutes and ignores client reward claims",
+    async (minutes) => {
+      useRules({
+        rewardTiers: { 20: 11, 30: 22, 45: 44 },
+        dailyRewardLimit: 6,
+      });
+      as(player);
+      const reply = await post({
+        type: "start",
+        ai: false,
+        screen: false,
+        share: false,
+        minutes,
+        points: 9999,
+        dailyRewardLimit: 99,
+        goal: "投递申请；Networking；技术学习",
+      });
+      expect(reply.status).toBe(200);
+      expect(reply.body.sessions[0].rules).toMatchObject({
+        minutes,
+        points: { 20: 11, 30: 22, 45: 44 }[minutes],
+        dailyRewardLimit: 6,
+      });
+      expect(reply.body.sessions[0].goal).toBe(
+        "投递申请；Networking；技术学习",
+      );
+    },
+  );
+
   it("records gentle reminders once, keeps snapshots only when sharing, and passes on completion", async () => {
     env.judge = async () => ({
       studying: true,
@@ -621,13 +651,15 @@ describe("study sessions", () => {
       screen: false,
       share: false,
       goal: "SQL 窗口函数",
-      minutes: 50,
+      minutes: 45,
     });
     expect(started.status).toBe(200);
     const s = started.body.sessions[0];
     expect(s).toMatchObject({ goal: "SQL 窗口函数", visits: [] });
-    expect(s.rules.minutes).toBe(50);
-    expect(s.endsAt).toBe(new Date(START + 50 * 60_000).toISOString());
+    expect(s.rules.minutes).toBe(45);
+    expect(s.rules.points).toBe(40);
+    expect(s.rules.dailyRewardLimit).toBe(5);
+    expect(s.endsAt).toBe(new Date(START + 45 * 60_000).toISOString());
     expect(started.body.features).toEqual({ visits: true });
     expect(
       (

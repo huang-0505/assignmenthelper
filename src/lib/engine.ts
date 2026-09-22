@@ -1,5 +1,5 @@
 import { Temporal } from "@js-temporal/polyfill";
-import { DEFAULT_STUDY, type StudyOutcome } from "./study";
+import { DEFAULT_STUDY, studyRewards, type StudyOutcome } from "./study";
 import type {
   Answer,
   BqTask,
@@ -262,7 +262,10 @@ export function retryQueue(state: GameState, before = "9999-12-31"): Day[] {
   return days.filter((d) => {
     const score = finalScore(latestAnswer(d));
     return (
-      score !== null && score < RETRY_SCORE && !d.retryOf && !retried.has(d.date)
+      score !== null &&
+      score < RETRY_SCORE &&
+      !d.retryOf &&
+      !retried.has(d.date)
     );
   });
 }
@@ -378,7 +381,9 @@ export function episodesDone(day: Day) {
   return !target || (day.episodes ?? 0) >= target;
 }
 /** Every task the day has, with whether it is done and whether the streak needs it. */
-export function dayTasks(day: Day): { key: TaskKey; done: boolean; core: boolean }[] {
+export function dayTasks(
+  day: Day,
+): { key: TaskKey; done: boolean; core: boolean }[] {
   const s = day.settings,
     core = coreOf(s);
   const tasks: { key: TaskKey; done: boolean }[] = [
@@ -440,7 +445,7 @@ export function evaluate(
     const req = requirements(day),
       answer = latestAnswer(day),
       sessions = sessionsByDay.get(day.date) ?? [],
-      studied = sessions.find((o) => o.passed),
+      studied = studyRewards(sessions),
       studyPenalty = sessions
         .filter((o) => o.failed)
         .reduce((sum, o) => sum + o.penalty, 0);
@@ -477,12 +482,12 @@ export function evaluate(
           completedBq(state, day.date).size === 12 &&
           [...completedBq(state, day.date).values()].every((p) => p.practice);
         if (retell) retellWeeks.add(weekOf);
-        // A passed study session is a bonus like the others: once per day, only on a met day.
+        // Replay duration-tier rewards only when the daily minimum is met.
         earned +=
           day.settings.basePoints +
           (bonus + Number(Boolean(retell))) * day.settings.bonusPoints +
-          (studied?.points ?? 0);
-        status = bonus || retell || studied || weekly ? "gold" : "met";
+          studied.reduce((sum, o) => sum + o.points, 0);
+        status = bonus || retell || studied.length || weekly ? "gold" : "met";
         streak += 1;
         for (const reward of day.settings.rewards) {
           if (
