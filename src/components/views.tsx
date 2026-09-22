@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import {
+  Activity,
   CalendarDays,
   Check,
   ChevronLeft,
@@ -22,12 +23,20 @@ import {
 } from "lucide-react";
 import {
   addDays,
+  bqDone,
   completedBq,
+  episodesDone,
   finalScore,
   latestAnswer,
   requirements,
 } from "@/lib/engine";
-import type { DayStatus, Project, Question, Settings } from "@/lib/types";
+import type {
+  Audit,
+  DayStatus,
+  Project,
+  Question,
+  Settings,
+} from "@/lib/types";
 import data from "../../data/bq.json";
 import { useGame } from "./provider";
 import { Modal, Progress, SectionHeading, Status, statusLabel } from "./ui";
@@ -222,6 +231,14 @@ export function DayDetail({
             {!day.bq ? "全部毕业" : day.bq.completedAt ? "已完成" : "未完成"}
           </strong>
         </div>
+        <div>
+          英语看剧
+          <strong>
+            {day.settings.episodes
+              ? `${day.episodes ?? 0} / ${day.settings.episodes} 集`
+              : "不要求"}
+          </strong>
+        </div>
       </div>
       <h3>
         面试题 <span className="muted">{day.question?.category}</span>
@@ -288,6 +305,19 @@ export function DayDetail({
               : day.bq.stage === 2
                 ? "尚未确认练习"
                 : "口述安排在后续日期"}
+          </span>
+        </div>
+      )}
+      {Boolean(day.settings.episodes) && (
+        <div className="detail-bq">
+          <h3>英语表达和听力</h3>
+          <p className="answer-text">
+            {day.episodeNote || "没有填写剧名或学到的表达"}
+          </p>
+          <span className="muted">
+            {episodesDone(day)
+              ? `刚好 ${day.settings.episodes} 集，已完成`
+              : `记录了 ${day.episodes ?? 0} 集，要求刚好 ${day.settings.episodes} 集`}
           </span>
         </div>
       )}
@@ -794,6 +824,7 @@ export function Referee() {
           </button>
         </div>
       </div>
+      <RefereeStats />
       {summary.pool >= state.settings.penaltyThreshold && (
         <div className="penalty-banner">
           <Gift />
@@ -801,6 +832,7 @@ export function Referee() {
           <span>兑换后清空当前累计金额，并保留兑换记录。</span>
         </div>
       )}
+      <TodayLive open={setSelected} />
       <section className="white-panel referee-days">
         <div className="section-heading">
           <h2>每日训练记录</h2>
@@ -852,6 +884,13 @@ export function Referee() {
                 </strong>
                 <span>
                   {req.completed} / {req.required} 已完成
+                  <small>
+                    申请 {day.applications}/{day.settings.applications} · 联系{" "}
+                    {day.contacts}/{day.settings.contacts}
+                    {day.settings.episodes
+                      ? ` · 看剧 ${day.episodes ?? 0}/${day.settings.episodes}`
+                      : ""}
+                  </small>
                 </span>
                 <span>
                   {score === null
@@ -867,13 +906,12 @@ export function Referee() {
           })}
         </div>
       </section>
+      <PlayerActivity />
       <section className="audit-section">
         <SectionHeading title="最近的裁判操作" />
         <div>
           {state.audit
-            .filter((a) =>
-              ["override", "settings", "redeem"].includes(a.action),
-            )
+            .filter((a) => REFEREE_ACTIONS.includes(a.action))
             .slice(-10)
             .reverse()
             .map((a) => (
@@ -883,20 +921,10 @@ export function Referee() {
                   {a.date && `${a.date} · `}
                   {a.detail}
                 </p>
-                <time>
-                  {new Date(a.at).toLocaleString("zh-CN", {
-                    timeZone: "America/New_York",
-                    month: "numeric",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </time>
+                <time>{nyTime(a.at)}</time>
               </div>
             ))}
-          {!state.audit.some((a) =>
-            ["override", "settings", "redeem"].includes(a.action),
-          ) && (
+          {!state.audit.some((a) => REFEREE_ACTIONS.includes(a.action)) && (
             <p className="muted">第一次评审或修改设置后，会在这里留下记录。</p>
           )}
         </div>
@@ -922,6 +950,215 @@ export function Referee() {
         </Modal>
       )}
     </>
+  );
+}
+const REFEREE_ACTIONS = ["override", "settings", "redeem", "playerName"];
+const nyTime = (at: string) =>
+  new Date(at).toLocaleString("zh-CN", {
+    timeZone: "America/New_York",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+function RefereeStats() {
+  const { summary, state } = useGame().snapshot,
+    days = Object.values(state.days),
+    total = (pick: (d: (typeof days)[number]) => number) =>
+      days.reduce((n, d) => n + pick(d), 0);
+  const stats: [string, string | number][] = [
+    ["总积分", summary.points],
+    ["最长连胜", `${summary.bestStreak} 天`],
+    ["冻结卡", `${summary.freezes} / 2`],
+    [
+      "达标天数",
+      `${summary.days.filter((d) => d.status === "met" || d.status === "gold").length} / ${summary.days.filter((d) => d.status !== "open").length}`,
+    ],
+    ["累计申请", total((d) => d.applications)],
+    ["累计联系", total((d) => d.contacts)],
+    ["累计看剧", `${total((d) => d.episodes ?? 0)} 集`],
+  ];
+  return (
+    <div className="referee-stats">
+      {stats.map(([label, value]) => (
+        <div key={label}>
+          <span>{label}</span>
+          <strong>{value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+function TodayLive({ open }: { open: (date: string) => void }) {
+  const { state, today, summary, serverTime } = useGame().snapshot,
+    day = state.days[today],
+    s = day.settings,
+    answer = latestAnswer(day),
+    score = finalScore(answer),
+    watched = day.episodes ?? 0;
+  const left = Math.max(
+    0,
+    Math.round((Date.parse(day.closesAt) - Date.parse(serverTime)) / 60000),
+  );
+  const tasks = [
+    {
+      label: "投递申请",
+      value: `${day.applications} / ${s.applications} 份`,
+      done: day.applications >= s.applications,
+    },
+    {
+      label: "联系新朋友",
+      value: `${day.contacts} / ${s.contacts} 人`,
+      done: day.contacts >= s.contacts,
+    },
+    {
+      label: `面试题 · ${day.question?.category ?? "项目深挖"}`,
+      value: !answer
+        ? "未作答"
+        : score === null
+          ? "等你评审"
+          : `${score} / 5 分`,
+      done: (score ?? 0) >= 3,
+    },
+    ...(day.bq
+      ? [
+          {
+            label: `BQ ${day.bq.questionId.split("-")[1]} / 12 · ${day.bq.stage === 1 ? "STAR 草稿" : "口述练习"}`,
+            value: bqDone(day.bq) ? "已完成" : "未完成",
+            done: bqDone(day.bq),
+          },
+        ]
+      : []),
+    ...(s.episodes
+      ? [
+          {
+            label: "英语看剧",
+            value: `${watched} / ${s.episodes} 集${watched > s.episodes ? "（超了）" : ""}`,
+            done: episodesDone(day),
+          },
+        ]
+      : []),
+  ];
+  return (
+    <section className="white-panel today-live">
+      <SectionHeading
+        title="今日实况"
+        note={`${today} · 纽约时间 ${String(s.closeHour).padStart(2, "0")}:00 结算，还剩 ${Math.floor(left / 60)}h ${left % 60}m`}
+      >
+        <Status status={summary.days.find((d) => d.date === today)!.status} />
+      </SectionHeading>
+      <div className="live-tasks">
+        {tasks.map((t) => (
+          <div key={t.label} className={t.done ? "done" : ""}>
+            {t.done ? (
+              <span className="check-badge" aria-label="已完成">
+                <Check size={14} />
+              </span>
+            ) : (
+              <span className="todo-dot" aria-label="未完成" />
+            )}
+            <span>{t.label}</span>
+            <strong>{t.value}</strong>
+          </div>
+        ))}
+      </div>
+      {day.logs.length > 0 && (
+        <div className="recent-logs">
+          <h3>今天的申请与联系</h3>
+          {day.logs.map((l) => (
+            <div key={l.id}>
+              <span>
+                {nyTime(l.at).split(" ").at(-1)} ·{" "}
+                {l.kind === "application" ? "申请" : "联系"} +{l.count} ·{" "}
+                {l.company || "未填写备注"}
+              </span>
+              {l.link && (
+                <a href={l.link} target="_blank" rel="noreferrer">
+                  查看链接
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {day.episodeNote && (
+        <p className="live-note">
+          <strong>看剧记录：</strong>
+          {day.episodeNote}
+        </p>
+      )}
+      <button className="text-button" onClick={() => open(today)}>
+        查看今天的答案和全部详情 <ChevronRight size={16} />
+      </button>
+    </section>
+  );
+}
+function PlayerActivity() {
+  const { state } = useGame().snapshot;
+  const logs = new Map(
+      Object.values(state.days).flatMap((d) =>
+        d.logs.map((l) => [l.id, l] as const),
+      ),
+    ),
+    answers = new Map(
+      Object.values(state.days).flatMap((d) =>
+        d.answers.map((a) => [a.id, a] as const),
+      ),
+    );
+  const describe = (a: Audit) => {
+    switch (a.action) {
+      case "log": {
+        const l = logs.get(a.id);
+        return l
+          ? `${l.kind === "application" ? "投递申请" : "联系新朋友"} +${l.count}${l.company ? ` · ${l.company}` : ""}`
+          : "记录了一条申请 / 联系（后来删除了）";
+      }
+      case "removeLog":
+        return "删除了一条申请 / 联系记录";
+      case "answer": {
+        const score = answers.has(a.id)
+          ? finalScore(answers.get(a.id))
+          : undefined;
+        return `提交面试题答案${score === null ? "（等你评审）" : score ? `（${score} / 5 分）` : ""}`;
+      }
+      case "bq":
+        return a.date && state.days[a.date]?.bq?.stage === 2
+          ? "完成 BQ 口述练习"
+          : "保存 BQ STAR 草稿";
+      case "retell":
+        return "记录每周 BQ 复述";
+      case "project":
+        return "新增或编辑了项目";
+      default:
+        return a.detail;
+    }
+  };
+  const entries = state.audit
+    .filter((a) => !REFEREE_ACTIONS.includes(a.action))
+    .slice(-15)
+    .reverse();
+  return (
+    <section className="audit-section">
+      <SectionHeading
+        title="她的最近动态"
+        note="她每次保存都会记录在这里，时间为纽约时间。"
+      />
+      <div>
+        {entries.map((a) => (
+          <div className="audit-row" key={a.id}>
+            <Activity size={16} />
+            <p>
+              {a.date && `${a.date} · `}
+              {describe(a)}
+            </p>
+            <time>{nyTime(a.at)}</time>
+          </div>
+        ))}
+        {!entries.length && (
+          <p className="muted">她开始记录后，每一步都会出现在这里。</p>
+        )}
+      </div>
+    </section>
   );
 }
 function Restricted() {
@@ -1007,7 +1244,7 @@ function SettingsForm({
 }: {
   settings: Settings;
   pending: boolean;
-  save: (settings: Settings) => Promise<boolean>;
+  save: (settings: Required<Settings>) => Promise<boolean>;
   busy: boolean;
 }) {
   const [rewards, setRewards] = useState(settings.rewards);
@@ -1019,6 +1256,12 @@ function SettingsForm({
   }[] = [
     { key: "applications", label: "每日申请最低份数", min: 1, max: 100 },
     { key: "contacts", label: "每日联系最低人数", min: 1, max: 1000 },
+    {
+      key: "episodes",
+      label: "每天看剧集数（必须刚好，0 为不要求）",
+      min: 0,
+      max: 5,
+    },
     { key: "bonusApplications", label: "申请加分门槛", min: 1, max: 100 },
     { key: "bonusContacts", label: "联系加分门槛", min: 1, max: 1000 },
     { key: "basePoints", label: "达标基础积分", min: 1, max: 1000 },
@@ -1051,7 +1294,7 @@ function SettingsForm({
             schedule: settings.schedule.map((_, i) =>
               String(form.get(`schedule-${i}`)),
             ),
-          } as Settings;
+          } as Required<Settings>;
           for (const field of numericFields)
             (s as unknown as Record<string, unknown>)[field.key] = Number(
               form.get(field.key),

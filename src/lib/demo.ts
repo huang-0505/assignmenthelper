@@ -53,6 +53,8 @@ function seed(now: string): GameState {
     const day = state.days[date];
     day.applications = i % 2 ? 5 : 3;
     day.contacts = i % 2 ? 30 : 20;
+    day.episodes = day.settings.episodes;
+    day.episodeNote = "Friends · I'm on it.";
     day.answers.push({
       id: crypto.randomUUID(),
       text: "Demo answer: I would start with a simple baseline, define the evaluation unit, and use a held-out dataset. I would inspect failure modes and report uncertainty before deciding whether to deploy.",

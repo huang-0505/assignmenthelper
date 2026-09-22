@@ -19,6 +19,7 @@ const settingsSchema = z
     closeHour: z.number().int().min(0).max(23),
     applications: z.number().int().min(1).max(100),
     contacts: z.number().int().min(1).max(1000),
+    episodes: z.number().int().min(0).max(5),
     bonusApplications: z.number().int().min(1).max(100),
     bonusContacts: z.number().int().min(1).max(1000),
     basePoints: z.number().int().min(1).max(1000),
@@ -76,6 +77,12 @@ export const actionSchema = z.discriminatedUnion("type", [
     type: z.literal("bq"),
     text: z.string().trim().max(16000),
     practiced: z.boolean(),
+  }),
+  z.object({
+    ...common,
+    type: z.literal("episodes"),
+    count: z.number().int().min(0).max(20),
+    note: z.string().trim().max(500),
   }),
   z.object({
     ...common,
@@ -201,6 +208,10 @@ export function applyAction(
       day.bq.completedAt = now;
       break;
     }
+    case "episodes":
+      day.episodes = action.count;
+      day.episodeNote = action.note;
+      break;
     case "retell": {
       const completed = completedBq(state, today);
       if (
@@ -272,7 +283,9 @@ export function applyAction(
             ? "裁判确认已请客，清空已累计罚金"
             : action.type === "playerName"
               ? `玩家名字改为「${action.name}」`
-              : "已保存",
+              : action.type === "episodes"
+                ? `看剧 ${action.count} 集`
+                : "已保存",
   });
 }
 

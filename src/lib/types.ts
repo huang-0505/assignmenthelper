@@ -22,6 +22,8 @@ export type Settings = {
   closeHour: number;
   applications: number;
   contacts: number;
+  /** English listening: watch exactly this many TV episodes a day. 0 or missing = not required. */
+  episodes?: number;
   bonusApplications: number;
   bonusContacts: number;
   basePoints: number;
@@ -58,6 +60,8 @@ export type Day = {
   settings: Settings;
   applications: number;
   contacts: number;
+  episodes?: number;
+  episodeNote?: string;
   logs: {
     id: string;
     kind: "application" | "contact";

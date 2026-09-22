@@ -10,6 +10,7 @@ import {
   evaluate,
   newGame,
   nextBq,
+  requirements,
   selectQuestion,
 } from "../src/lib/engine";
 import { applyAction, applyGrade, actionSchema } from "../src/lib/actions";
@@ -25,6 +26,7 @@ function finish(day: Day, bonus = false) {
     ? day.settings.bonusApplications
     : day.settings.applications;
   day.contacts = bonus ? day.settings.bonusContacts : day.settings.contacts;
+  day.episodes = day.settings.episodes ?? 0;
   day.answers.push({
     id: crypto.randomUUID(),
     text: "A specific explanation of the evaluation design.",
@@ -236,6 +238,7 @@ describe("daily settlement", () => {
         id: crypto.randomUUID(),
         settings: {
           ...s.settings,
+          episodes: 1,
           applications: 8,
           bonusApplications: 10,
           closeHour: 2,
@@ -423,7 +426,11 @@ describe("validated mutations", () => {
     expect(() =>
       applyAction(
         s,
-        { type: "settings", id: crypto.randomUUID(), settings: s.settings },
+        {
+          type: "settings",
+          id: crypto.randomUUID(),
+          settings: { ...s.settings, episodes: 1 },
+        },
         "player",
         "p",
         noon(s.startedOn),
@@ -593,5 +600,77 @@ describe("validated mutations", () => {
         bank,
       ),
     ).toThrow("5 次");
+  });
+});
+describe("English episode task", () => {
+  it("counts only when exactly the target number of episodes was watched", () => {
+    const s = game(),
+      d = s.days[s.startedOn];
+    finish(d);
+    expect(d.settings.episodes).toBe(1);
+    for (const [watched, met] of [
+      [0, false],
+      [1, true],
+      [2, false],
+    ] as const) {
+      d.episodes = watched;
+      expect(requirements(d)).toMatchObject({ met, required: 5 });
+    }
+  });
+  it("adds the task to older camps from the open day on, never retroactively", () => {
+    const s = game();
+    runDays(s, 2);
+    // A camp saved before the task existed has no episode fields at all.
+    delete s.settings.episodes;
+    for (const d of Object.values(s.days)) {
+      delete d.settings.episodes;
+      delete d.episodes;
+    }
+    const [closed, open] = [s.startedOn, addDays(s.startedOn, 1)];
+    advance(s, noon(open), bank);
+    expect(s.settings.episodes).toBe(1);
+    expect(s.days[open]).toMatchObject({
+      episodes: 0,
+      settings: { episodes: 1 },
+    });
+    expect(s.days[closed].settings.episodes).toBeUndefined();
+    expect(requirements(s.days[closed])).toMatchObject({
+      met: true,
+      required: 4,
+    });
+    expect(requirements(s.days[open]).met).toBe(false);
+  });
+  it("does not hold a day for review when the episode count is off", () => {
+    const s = game(),
+      d = s.days[s.startedOn],
+      after = noon(addDays(s.startedOn, 1));
+    finish(d);
+    d.answers[0].grade = {
+      ...d.answers[0].grade,
+      score: null,
+      status: "pending",
+    };
+    d.episodes = 2;
+    expect(evaluate(s, after).days[0].status).toBe("frozen");
+    d.episodes = 1;
+    expect(evaluate(s, after).days[0].status).toBe("pending");
+  });
+  it("lets only the player record today's episodes", () => {
+    const s = game(),
+      a = {
+        type: "episodes" as const,
+        id: crypto.randomUUID(),
+        date: s.startedOn,
+        count: 1,
+        note: "Friends S01E01",
+      };
+    expect(() =>
+      applyAction(s, a, "referee", "r", noon(s.startedOn), bank),
+    ).toThrow("权限");
+    applyAction(s, a, "player", "p", noon(s.startedOn), bank);
+    expect(s.days[s.startedOn]).toMatchObject({
+      episodes: 1,
+      episodeNote: "Friends S01E01",
+    });
   });
 });

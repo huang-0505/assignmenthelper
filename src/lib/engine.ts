@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS: Settings = {
   closeHour: 0,
   applications: 3,
   contacts: 20,
+  episodes: 1,
   bonusApplications: 5,
   bonusContacts: 30,
   basePoints: 100,
@@ -24,9 +25,9 @@ export const DEFAULT_SETTINGS: Settings = {
   penaltyThreshold: 50,
   schedule: ["AI/LLM", "ML", "AI/LLM", "SQL", "ML", "Project", "Alternate"],
   rewards: [
-    { streak: 7, text: "一杯喜欢的饮料，裁判请客！" },
-    { streak: 14, text: "一起看一场想看的电影" },
-    { streak: 21, text: "解锁一顿庆祝大餐！" },
+    { streak: 7, text: "一顿想吃的饭，裁判请客！" },
+    { streak: 14, text: "一起去一日游！" },
+    { streak: 21, text: "一份裁判用心挑的小礼物！" },
   ],
 };
 
@@ -234,6 +235,7 @@ function createDay(
     settings: structuredClone(settings),
     applications: 0,
     contacts: 0,
+    episodes: 0,
     logs: [],
     answers: [],
     question: selectQuestion(state, date, bank, settings),
@@ -264,6 +266,16 @@ export function advance(
   let day = Object.values(state.days).sort((a, b) =>
     b.date.localeCompare(a.date),
   )[0];
+  // Camps saved before the episode task existed get it from the day still open; closed days keep their rules.
+  if (state.settings.episodes === undefined) {
+    state.settings.episodes = DEFAULT_SETTINGS.episodes;
+    if (state.nextSettings)
+      state.nextSettings.episodes ??= state.settings.episodes;
+    if (Temporal.Instant.compare(now, day.closesAt) < 0) {
+      day.settings.episodes = state.settings.episodes;
+      day.episodes ??= 0;
+    }
+  }
   let count = 0;
   while (Temporal.Instant.compare(now, day.closesAt) >= 0) {
     if (++count > 3660) throw new Error("超过十年的数据需要管理员迁移");
@@ -285,6 +297,11 @@ export function advance(
   }
   return day.date;
 }
+/** The episode task is exact: watching more than the target fails it, just like watching fewer. */
+export function episodesDone(day: Day) {
+  const target = day.settings.episodes ?? 0;
+  return !target || (day.episodes ?? 0) === target;
+}
 export function requirements(day: Day) {
   const s = day.settings;
   const checks = [
@@ -293,6 +310,7 @@ export function requirements(day: Day) {
     (finalScore(latestAnswer(day)) ?? 0) >= 3,
   ];
   if (day.bq) checks.push(bqDone(day.bq));
+  if (s.episodes) checks.push(episodesDone(day));
   return {
     completed: checks.filter(Boolean).length,
     required: checks.length,
@@ -357,7 +375,8 @@ export function evaluate(state: GameState, now: string): Summary {
         const otherMet =
           day.applications >= day.settings.applications &&
           day.contacts >= day.settings.contacts &&
-          bqDone(day.bq);
+          bqDone(day.bq) &&
+          episodesDone(day);
         if (answer && finalScore(answer) === null && otherMet) {
           status = "pending";
           blocked = true;

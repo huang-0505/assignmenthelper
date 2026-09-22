@@ -15,12 +15,14 @@ import {
   Lightbulb,
   LockKeyhole,
   Mic,
+  Minus,
   Plus,
   Send,
   Snowflake,
   Sparkles,
   Star,
   Trash2,
+  Tv,
   Users,
   Zap,
 } from "lucide-react";
@@ -28,6 +30,7 @@ import {
   bqDone,
   categoryFor,
   completedBq,
+  episodesDone,
   finalScore,
   latestAnswer,
   requirements,
@@ -158,6 +161,7 @@ export function Today() {
           </section>
           <Interview key={`answer-${today}`} day={day} />
           <Bq key={`bq-${today}`} day={day} />
+          <English key={`english-${today}`} day={day} />
           <div className="day-bottom">
             <Status status={current.status} />
             <span>
@@ -871,6 +875,87 @@ function Bq({ day }: { day: Day }) {
           </button>
         </form>
       )}
+    </section>
+  );
+}
+function English({ day }: { day: Day }) {
+  const { act, busy } = useGame(),
+    target = day.settings.episodes ?? 0,
+    saved = day.episodes ?? 0;
+  const [count, setCount] = useState(saved),
+    [note, setNote] = useState(day.episodeNote ?? "");
+  if (!target) return null;
+  return (
+    <section className="bq-section english-section">
+      <div className="bq-header">
+        <span className="task-icon blue">
+          <Tv size={23} />
+        </span>
+        <div>
+          <h2>英语表达和听力</h2>
+          <p>
+            每天看 {target} 集英文电视剧：刚好 {target}{" "}
+            集才算完成，多看、少看都不算。
+          </p>
+        </div>
+        {episodesDone(day) && (
+          <span className="check-badge" aria-label="已达标">
+            <Check size={15} />
+          </span>
+        )}
+      </div>
+      <form
+        className="stack-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void act({ type: "episodes", date: day.date, count, note });
+        }}
+      >
+        <div className="episode-stepper" role="group" aria-label="今天看了几集">
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="少记一集"
+            disabled={count <= 0}
+            onClick={() => setCount(count - 1)}
+          >
+            <Minus size={18} />
+          </button>
+          <strong aria-live="polite">{count}</strong>
+          <span>集</span>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="多记一集"
+            disabled={count >= 20}
+            onClick={() => setCount(count + 1)}
+          >
+            <Plus size={18} />
+          </button>
+        </div>
+        <label>
+          剧名 / 今天学到的表达 <span className="optional">可选</span>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={2}
+            maxLength={500}
+            placeholder="例如：Friends S01E03 · I'm on it."
+          />
+        </label>
+        <p className={saved > target ? "form-error small" : "muted small"}>
+          {saved === target
+            ? `刚好 ${target} 集，今天的英语任务完成！`
+            : saved > target
+              ? `已记录 ${saved} 集，超过了 ${target} 集，今天的英语任务不算完成。`
+              : saved
+                ? `已记录 ${saved} 集，还差 ${target - saved} 集。`
+                : `看完后记录为 ${target} 集并保存。`}
+        </p>
+        <button className="button primary" disabled={busy}>
+          保存看剧记录
+        </button>
+      </form>
     </section>
   );
 }
