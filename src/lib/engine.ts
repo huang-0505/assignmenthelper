@@ -225,12 +225,39 @@ export function selectQuestion(
   });
   return structuredClone(candidates[0]);
 }
+export const RETRY_SCORE = 4,
+  RETRY_DAYS = 5;
+/**
+ * Weak answers (below 4) that will come back: each once, on the next same-category day at least
+ * five days later. A day that is itself a second try does not come back again.
+ */
+export function retryQueue(state: GameState, before = "9999-12-31"): Day[] {
+  const days = Object.values(state.days)
+    .filter((d) => d.date < before && d.question)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const retried = new Set(days.map((d) => d.retryOf));
+  return days.filter((d) => {
+    const score = finalScore(latestAnswer(d));
+    return (
+      score !== null && score < RETRY_SCORE && !d.retryOf && !retried.has(d.date)
+    );
+  });
+}
+function retryDue(state: GameState, date: string, category: Category) {
+  return retryQueue(state, date).find(
+    (d) =>
+      d.question!.category === category && d.date <= addDays(date, -RETRY_DAYS),
+  );
+}
 function createDay(
   state: GameState,
   date: string,
   bank: Question[],
   settings: Settings,
 ): Day {
+  const category = categoryFor(date, settings);
+  const retry =
+    category === "Project" ? undefined : retryDue(state, date, category);
   return {
     date,
     closesAt: closeTime(date, settings),
@@ -240,7 +267,10 @@ function createDay(
     episodes: 0,
     logs: [],
     answers: [],
-    question: selectQuestion(state, date, bank, settings),
+    question: retry
+      ? structuredClone(retry.question)
+      : selectQuestion(state, date, bank, settings),
+    ...(retry && { retryOf: retry.date }),
     bq: nextBq(state, date, bank),
   };
 }
@@ -306,10 +336,10 @@ export function advance(
   }
   return day.date;
 }
-/** The episode task is exact: watching more than the target fails it, just like watching fewer. */
+/** The episode task asks for the target; watching more neither helps nor hurts. */
 export function episodesDone(day: Day) {
   const target = day.settings.episodes ?? 0;
-  return !target || (day.episodes ?? 0) === target;
+  return !target || (day.episodes ?? 0) >= target;
 }
 export function requirements(day: Day) {
   const s = day.settings;

@@ -11,6 +11,7 @@ import {
   newGame,
   nextBq,
   requirements,
+  retryQueue,
   selectQuestion,
 } from "../src/lib/engine";
 import { applyAction, applyGrade, actionSchema } from "../src/lib/actions";
@@ -338,6 +339,40 @@ describe("question assignment and BQ", () => {
       selectQuestion(s, addDays(s.startedOn, 10), bank, s.settings)?.id,
     ).toBe("py-01");
   });
+  it("brings a weak answer back once, five days later, in the same category", () => {
+    const s = game();
+    s.settings.schedule = Array(7).fill("ML");
+    const first = s.days[s.startedOn];
+    finish(first);
+    first.answers[0].grade.score = 3;
+    expect(retryQueue(s).map((d) => d.date)).toEqual([s.startedOn]);
+    for (let i = 1; i <= 4; i++) {
+      const d = addDays(s.startedOn, i);
+      advance(s, noon(d), bank);
+      expect(s.days[d].question!.id).not.toBe(first.question!.id);
+      expect(s.days[d].retryOf).toBeUndefined();
+    }
+    const fifth = addDays(s.startedOn, 5);
+    advance(s, noon(fifth), bank);
+    expect(s.days[fifth]).toMatchObject({
+      retryOf: s.startedOn,
+      question: { id: first.question!.id },
+    });
+    // Still weak the second time: it does not come back a third time.
+    finish(s.days[fifth]);
+    s.days[fifth].answers[0].grade.score = 2;
+    for (let i = 6; i <= 11; i++) {
+      const d = addDays(s.startedOn, i);
+      advance(s, noon(d), bank);
+      expect(s.days[d].question!.id).not.toBe(first.question!.id);
+    }
+    expect(retryQueue(s)).toEqual([]);
+    // A strong answer never comes back.
+    const strong = addDays(s.startedOn, 1);
+    finish(s.days[strong]);
+    s.days[strong].answers[0].grade.score = 4;
+    expect(retryQueue(s)).toEqual([]);
+  });
   it("keeps the same assignment on repeated reads", () => {
     const s = game();
     const q = s.days[s.startedOn].question;
@@ -605,7 +640,7 @@ describe("validated mutations", () => {
   });
 });
 describe("English episode task", () => {
-  it("counts only when exactly the target number of episodes was watched", () => {
+  it("counts once the target number of episodes was watched, extra episodes included", () => {
     const s = game(),
       d = s.days[s.startedOn];
     finish(d);
@@ -613,7 +648,7 @@ describe("English episode task", () => {
     for (const [watched, met] of [
       [0, false],
       [1, true],
-      [2, false],
+      [2, true],
     ] as const) {
       d.episodes = watched;
       expect(requirements(d)).toMatchObject({ met, required: 5 });
@@ -652,7 +687,7 @@ describe("English episode task", () => {
       score: null,
       status: "pending",
     };
-    d.episodes = 2;
+    d.episodes = 0;
     expect(evaluate(s, after).days[0].status).toBe("frozen");
     d.episodes = 1;
     expect(evaluate(s, after).days[0].status).toBe("pending");

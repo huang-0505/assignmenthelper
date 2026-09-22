@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { gradeAnswer } from "../src/lib/grading";
+import { gradeAnswer, llmConfig } from "../src/lib/grading";
 import type { Question } from "../src/lib/types";
 const question: Question = {
   id: "test",
@@ -27,6 +27,62 @@ const good = () =>
       },
     ],
   });
+const geminiGood = () =>
+  Response.json({
+    candidates: [
+      {
+        content: {
+          parts: [
+            { text: JSON.stringify({ score: 4, missing: [], tip: "很好。" }) },
+          ],
+        },
+      },
+    ],
+  });
+describe("Gemini grading", () => {
+  const withGemini = {
+    ...config,
+    gemini: { apiKey: "g-key", model: "gemini-3.5-flash-lite" },
+  };
+  it("grades with Gemini first, as structured JSON", async () => {
+    const f = vi.fn<typeof fetch>().mockResolvedValueOnce(geminiGood());
+    expect(await gradeAnswer(question, "Answer", withGemini, f)).toMatchObject({
+      score: 4,
+      model: "gemini-3.5-flash-lite",
+      status: "graded",
+    });
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(String(f.mock.calls[0][0])).toContain(
+      "generativelanguage.googleapis.com",
+    );
+    const body = JSON.parse(f.mock.calls[0][1]!.body as string);
+    expect(body.generationConfig.responseMimeType).toBe("application/json");
+    expect(body.systemInstruction.parts[0].text).toContain("untrusted");
+    expect(JSON.parse(body.contents[0].parts[0].text).answer).toBe("Answer");
+  });
+  it("falls back to the chat chain when Gemini fails", async () => {
+    const f = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("", { status: 503 }))
+      .mockResolvedValueOnce(good());
+    expect(await gradeAnswer(question, "Answer", withGemini, f)).toMatchObject({
+      score: 3,
+      model: "first:free",
+    });
+  });
+  it("uses the Gemini key for grading unless GRADER=openai", () => {
+    expect(llmConfig({ GEMINI_API_KEY: "k" }).gemini).toEqual({
+      apiKey: "k",
+      model: "gemini-3.5-flash-lite",
+    });
+    expect(
+      llmConfig({ GEMINI_API_KEY: "k", GEMINI_MODEL: "gemini-3.5-flash" }).gemini
+        ?.model,
+    ).toBe("gemini-3.5-flash");
+    expect(llmConfig({ GEMINI_API_KEY: "k", GRADER: "openai" }).gemini).toBeUndefined();
+    expect(llmConfig({}).gemini).toBeUndefined();
+  });
+});
 describe("provider-agnostic grading", () => {
   it("uses fallback after 429 and attaches provenance", async () => {
     const f = vi

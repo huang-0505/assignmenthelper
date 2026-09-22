@@ -17,6 +17,7 @@ import {
   Mic,
   Minus,
   Plus,
+  RotateCcw,
   Send,
   Snowflake,
   Sparkles,
@@ -165,6 +166,7 @@ export function Today() {
         </div>
         <Journey
           streak={summary.streak}
+          campDay={Object.keys(state.days).sort().indexOf(today) + 1}
           milestones={day.settings.rewards.map((r) => r.streak)}
         />
       </section>
@@ -274,9 +276,11 @@ function ShieldNotice() {
 }
 function Journey({
   streak,
+  campDay,
   milestones,
 }: {
   streak: number;
+  campDay: number;
   milestones: number[];
 }) {
   const targets = [...milestones].sort((a, b) => a - b).slice(0, 3);
@@ -397,7 +401,12 @@ function Journey({
         <circle cx="147" cy="60" r="5" fill="#ffb99c" />
       </svg>
       <div className="journey-tag">
-        <Flame size={16} fill="currentColor" /> 连胜 {streak} 天，继续前进！
+        <Flame size={16} fill="currentColor" />{" "}
+        {streak > 0
+          ? `连胜 ${streak} 天，继续前进！`
+          : campDay === 1
+            ? "第 1 天，从今天开始！"
+            : `第 ${campDay} 天，今天再点亮一次！`}
       </div>
     </div>
   );
@@ -595,6 +604,9 @@ function Interview({ day }: { day: Day }) {
     [showRubric, setShowRubric] = useState(false);
   const pending = Boolean(answer && score === null),
     done = (score ?? 0) >= 3;
+  const previous = day.retryOf
+    ? latestAnswer(snapshot.state.days[day.retryOf])
+    : undefined;
   return (
     <section className={`interview-section ${done ? "task-complete" : ""}`}>
       <div className="interview-top">
@@ -633,10 +645,37 @@ function Interview({ day }: { day: Day }) {
                 ? "专属项目追问"
                 : day.question.id.toUpperCase()}
             </span>
+            {day.retryOf && (
+              <span className="retry-chip">
+                <RotateCcw size={12} /> 回炉题
+              </span>
+            )}
           </div>
           <h3 className="english-question" lang="en">
             {day.question.prompt}
           </h3>
+          {day.retryOf && previous && (
+            <details className="retry-box">
+              <summary>
+                上次是 {day.retryOf}，{finalScore(previous) ?? "?"}{" "}
+                分。这次把上次缺的补上。
+              </summary>
+              <p>
+                <b>上次的评语</b>
+                {previous.override?.reason || previous.grade.tip}
+              </p>
+              {previous.grade.missing.length > 0 && (
+                <p>
+                  <b>上次缺的要点</b>
+                  {previous.grade.missing.join("；")}
+                </p>
+              )}
+              <p>
+                <b>上次的回答</b>
+                <span lang="en">{previous.text}</span>
+              </p>
+            </details>
+          )}
           {day.question.schema && (
             <details className="schema">
               <summary>查看数据表结构</summary>
@@ -916,7 +955,7 @@ function English({ day }: { day: Day }) {
   if (!target) return null;
   const status =
     saved === target
-      ? `刚好 ${target} 集，今天的英语任务完成！`
+      ? `看完 ${target} 集，今天的英语任务完成！`
       : saved > target
         ? `已记录 ${saved} 集，超过了 ${target} 集，今天的英语任务不算完成。`
         : saved
@@ -931,8 +970,7 @@ function English({ day }: { day: Day }) {
         <div>
           <h2>英语表达和听力</h2>
           <p>
-            每天看 {target} 集英文电视剧：刚好 {target}{" "}
-            集才算完成，多看、少看都不算。
+            每天看 {target} 集英文电视剧，看完记下来就算完成；多看不加分。
           </p>
         </div>
         <button

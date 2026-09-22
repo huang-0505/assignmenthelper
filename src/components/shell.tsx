@@ -66,6 +66,9 @@ export function Shell({ children }: { children: ReactNode }) {
           projects,
         ]
       : nav;
+  // Day one of the camp reads better as "day 1" than as a streak of zero.
+  const campDay =
+    Object.keys(snapshot.state.days).sort().indexOf(snapshot.today) + 1;
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main">
@@ -142,8 +145,10 @@ export function Shell({ children }: { children: ReactNode }) {
               纽约时间
             </span>
             <span className="streak-chip">
-              <Flame size={16} fill="currentColor" /> {snapshot.summary.streak}{" "}
-              天连胜
+              <Flame size={16} fill="currentColor" />{" "}
+              {snapshot.summary.streak > 0
+                ? `${snapshot.summary.streak} 天连胜`
+                : `第 ${campDay} 天`}
             </span>
           </div>
         </header>

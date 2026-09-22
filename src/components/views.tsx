@@ -30,6 +30,8 @@ import {
   finalScore,
   latestAnswer,
   requirements,
+  RETRY_DAYS,
+  retryQueue,
 } from "@/lib/engine";
 import type {
   Audit,
@@ -327,8 +329,8 @@ export function DayDetail({
           </p>
           <span className="muted">
             {episodesDone(day)
-              ? `刚好 ${day.settings.episodes} 集，已完成`
-              : `记录了 ${day.episodes ?? 0} 集，要求刚好 ${day.settings.episodes} 集`}
+              ? `看了 ${day.episodes} 集，已完成`
+              : `记录了 ${day.episodes ?? 0} 集，要求 ${day.settings.episodes} 集`}
           </span>
         </div>
       )}
@@ -428,7 +430,8 @@ export function Stats() {
       { apps: 0, contacts: 0 },
     );
   const progress = completedBq(state),
-    categories = ["ML", "AI/LLM", "SQL", "Python", "Project"];
+    categories = ["ML", "AI/LLM", "SQL", "Python", "Project"],
+    queue = retryQueue(state);
   return (
     <>
       <PageTitle title="看见，正在变强的你" subtitle="成长记录" />
@@ -536,6 +539,25 @@ export function Stats() {
               );
             })}
           </div>
+          {queue.length > 0 && (
+            <div className="retry-queue">
+              <strong>待回炉 {queue.length} 题</strong>
+              <p>低于 4 分的题，5 天后会在同类别的日子再出一次。</p>
+              <ul>
+                {queue.map((d) => (
+                  <li key={d.date}>
+                    <span className="category-chip">
+                      {d.question!.category}
+                    </span>
+                    {d.question!.id.toUpperCase()} ·{" "}
+                    {finalScore(latestAnswer(d))} 分 ·{" "}
+                    {addDays(d.date, RETRY_DAYS).slice(5).replace("-", "/")}{" "}
+                    起
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
       </div>
       <section className="rewards-section">
@@ -892,7 +914,10 @@ export function Referee() {
               >
                 <strong>
                   {d.date}
-                  <small>{day.question?.category || "项目深挖"}</small>
+                  <small>
+                    {day.question?.category || "项目深挖"}
+                    {day.retryOf && " · 回炉"}
+                  </small>
                 </strong>
                 <span>
                   {req.completed} / {req.required} 已完成
@@ -1544,7 +1569,7 @@ function SettingsForm({
     { key: "contacts", label: "每日联系最低人数", min: 1, max: 1000 },
     {
       key: "episodes",
-      label: "每天看剧集数（必须刚好，0 为不要求）",
+      label: "每天看剧集数（至少，0 为不要求）",
       min: 0,
       max: 5,
     },

@@ -5191,6 +5191,67 @@ body {
   color: var(--amber);
 }
 
+/* A question back for a second try: the chip, and last time's attempt folded under it. */
+.retry-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #fff3dc;
+  color: #8a5a07;
+  font-weight: 800;
+}
+.retry-box {
+  margin: -6px 0 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff9ec;
+  border: 1px solid #f1dca8;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.retry-box summary {
+  cursor: pointer;
+  font-weight: 750;
+  color: #6d4d0f;
+}
+.retry-box p {
+  margin-top: 10px;
+}
+.retry-box b {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+.retry-box span[lang] {
+  display: block;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--ink);
+}
+.retry-queue {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+.retry-queue p {
+  color: var(--muted);
+  margin: 2px 0 8px;
+}
+.retry-queue ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.retry-queue li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* The referee's line on her Today page: the coach's face, speaking. */
 .hero-note {
   display: flex;

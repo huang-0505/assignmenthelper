@@ -74,6 +74,8 @@ export type Day = {
     at: string;
   }[];
   question: Question | null;
+  /** Set when today's question is a weak answer from that earlier day, back for a second try. */
+  retryOf?: string;
   answers: Answer[];
   bq: BqTask | null;
   retell?: { questionId: string; practiced: boolean; text: string };
