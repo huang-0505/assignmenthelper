@@ -1,3 +1,4 @@
+import type { CoachMood, StudyRules } from "./study";
 export type Category = "ML" | "AI/LLM" | "SQL" | "Python" | "Project";
 export type Role = "player" | "referee";
 export type Question = {
@@ -32,6 +33,8 @@ export type Settings = {
   penaltyThreshold: number;
   schedule: (Category | "Alternate")[];
   rewards: { streak: number; text: string }[];
+  /** Optional Study Mode; missing on snapshots saved before it existed. */
+  study?: StudyRules;
 };
 export type Grade = {
   score: number | null;
@@ -94,6 +97,11 @@ export type GameState = {
   projects: Project[];
   redemptions: { id: string; at: string; amount: number }[];
   audit: Audit[];
+  /** Study Mode coach: the referee's lines and photo versions (photos live in private storage). */
+  coach?: {
+    lines?: Partial<Record<CoachMood, string>>;
+    photos?: Partial<Record<CoachMood, string>>;
+  };
 };
 export type DayStatus =
   "open" | "met" | "gold" | "missed" | "frozen" | "pending" | "waiting";
@@ -106,6 +114,7 @@ export type EvaluatedDay = {
   penalty: number;
   completed: number;
   required: number;
+  study: { passed: number; failed: number };
 };
 export type Summary = {
   days: EvaluatedDay[];

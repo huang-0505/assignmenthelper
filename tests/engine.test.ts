@@ -14,6 +14,7 @@ import {
   selectQuestion,
 } from "../src/lib/engine";
 import { applyAction, applyGrade, actionSchema } from "../src/lib/actions";
+import { DEFAULT_STUDY } from "../src/lib/study";
 import type { Day, GameState, Question } from "../src/lib/types";
 import data from "../data/questions.json";
 const bank = data as Question[];
@@ -239,6 +240,7 @@ describe("daily settlement", () => {
         settings: {
           ...s.settings,
           episodes: 1,
+          study: DEFAULT_STUDY,
           applications: 8,
           bonusApplications: 10,
           closeHour: 2,
@@ -429,7 +431,7 @@ describe("validated mutations", () => {
         {
           type: "settings",
           id: crypto.randomUUID(),
-          settings: { ...s.settings, episodes: 1 },
+          settings: { ...s.settings, episodes: 1, study: DEFAULT_STUDY },
         },
         "player",
         "p",

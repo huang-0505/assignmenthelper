@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { GameProvider } from "@/components/provider";
 import { Shell } from "@/components/shell";
+import { Study } from "@/components/study";
 import { Today } from "@/components/today";
 import {
   History,
@@ -23,6 +24,7 @@ export default async function Page({
     projects: Projects,
     referee: Referee,
     settings: SettingsView,
+    study: Study,
   };
   if (!Object.hasOwn(views, key)) notFound();
   const View = views[key as keyof typeof views];

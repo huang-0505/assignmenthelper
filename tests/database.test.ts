@@ -9,8 +9,15 @@ beforeAll(async () => {
     "CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;",
   );
   await db.exec(readFileSync("supabase/migrations/001_initial.sql", "utf8"));
+  await db.exec(readFileSync("supabase/migrations/002_study.sql", "utf8"));
   await db.exec(readFileSync("supabase/seed.sql", "utf8"));
 }, 30000);
+const openSession = (id: string) =>
+  db.query(
+    `INSERT INTO public.study_sessions (id, day, started_at, ends_at, last_seen_at, rules, layers)
+     VALUES ($1, '2026-09-22', now(), now() + interval '30 minutes', now(), '{}', '{}')`,
+    [id],
+  );
 afterAll(async () => {
   await db.close();
 });
@@ -52,6 +59,35 @@ describe("Postgres migration, seed and security", () => {
       ).rows[0].revision,
     ).toBe(1);
   });
+  it("allows only one running study session and deletes its strikes with it", async () => {
+    const first = "00000000-0000-4000-8000-00000000000a",
+      second = "00000000-0000-4000-8000-00000000000b";
+    await openSession(first);
+    await expect(openSession(second)).rejects.toThrow();
+    await db.query(
+      `INSERT INTO public.study_strikes (id, session_id, at, kind, source, reason)
+       VALUES (gen_random_uuid(), $1, now(), 'strike', 'phone', '镜头里出现了手机')`,
+      [first],
+    );
+    await expect(
+      db.query(
+        `INSERT INTO public.study_strikes (id, session_id, at, kind, source, reason)
+         VALUES (gen_random_uuid(), $1, now(), 'strike', 'tiktok', 'x')`,
+        [first],
+      ),
+    ).rejects.toThrow();
+    await db.query(
+      "UPDATE public.study_sessions SET ended_at = now(), end_reason = 'completed' WHERE id = $1",
+      [first],
+    );
+    await openSession(second);
+    await db.query("DELETE FROM public.study_sessions WHERE id = $1", [first]);
+    const left = await db.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM public.study_strikes WHERE session_id = $1",
+      [first],
+    );
+    expect(left.rows[0].n).toBe(0);
+  });
   it.each(["anon", "authenticated"])(
     "denies the %s browser role any table or RPC access",
     async (role) => {
@@ -62,6 +98,12 @@ describe("Postgres migration, seed and security", () => {
         ).rejects.toThrow();
         await expect(
           db.query("SELECT * FROM public.question_bank"),
+        ).rejects.toThrow();
+        await expect(
+          db.query("SELECT * FROM public.study_sessions"),
+        ).rejects.toThrow();
+        await expect(
+          db.query("SELECT * FROM public.study_strikes"),
         ).rejects.toThrow();
         await expect(
           db.query(`SELECT public.commit_game(1,'{"version":1}'::jsonb)`),

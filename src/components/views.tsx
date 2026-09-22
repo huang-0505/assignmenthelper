@@ -37,8 +37,18 @@ import type {
   Question,
   Settings,
 } from "@/lib/types";
+import { toast } from "sonner";
+import {
+  COACH_MOODS,
+  DEFAULT_COACH_LINES,
+  withDefaults,
+  type CoachMood,
+  type StudyRules,
+} from "@/lib/study";
+import { photoJpeg } from "@/lib/study-detector";
 import data from "../../data/bq.json";
 import { useGame } from "./provider";
+import { DoorWindow } from "./study-parts";
 import { Modal, Progress, SectionHeading, Status, statusLabel } from "./ui";
 function PageTitle({ title, subtitle }: { title: string; subtitle: string }) {
   return (
@@ -952,7 +962,15 @@ export function Referee() {
     </>
   );
 }
-const REFEREE_ACTIONS = ["override", "settings", "redeem", "playerName"];
+const REFEREE_ACTIONS = [
+  "override",
+  "settings",
+  "redeem",
+  "playerName",
+  "coachLines",
+  "coachPhoto",
+  "studyOverturn",
+];
 const nyTime = (at: string) =>
   new Date(at).toLocaleString("zh-CN", {
     timeZone: "America/New_York",
@@ -1185,6 +1203,7 @@ export function SettingsView() {
         save={(name) => act({ type: "playerName", name })}
         busy={busy}
       />
+      <CoachSettings key={JSON.stringify(snapshot.state.coach?.lines)} />
       <SettingsForm
         key={JSON.stringify(
           snapshot.state.nextSettings || snapshot.state.settings,
@@ -1195,6 +1214,211 @@ export function SettingsView() {
         busy={busy}
       />
     </>
+  );
+}
+type StudyField = {
+  key: Exclude<keyof StudyRules, "strict">;
+  label: string;
+  min: number;
+  max: number;
+  step?: number;
+};
+const STUDY_FIELDS: StudyField[] = [
+  { key: "minutes", label: "每次时长（分钟）", min: 5, max: 120 },
+  { key: "maxStrikes", label: "几次违规算失败", min: 1, max: 10 },
+  { key: "warningsPerStrike", label: "几次提醒算 1 次违规", min: 1, max: 5 },
+  { key: "minGap", label: "查岗间隔最短（分钟）", min: 1, max: 30 },
+  { key: "maxGap", label: "查岗间隔最长（分钟）", min: 1, max: 60 },
+  { key: "points", label: "通过奖励积分", min: 0, max: 1000 },
+  { key: "penalty", label: "失败罚金（美元）", min: 0, max: 1000 },
+  {
+    key: "pauseMinutes",
+    label: "暂停上限（分钟，0 为不能暂停）",
+    min: 0,
+    max: 30,
+  },
+];
+const STUDY_DETECTION: StudyField[] = [
+  {
+    key: "absentSeconds",
+    label: "离开镜头多久算一次（秒）",
+    min: 10,
+    max: 1800,
+  },
+  {
+    key: "phoneHits",
+    label: "最近 5 次检测里看到手机几次算一次",
+    min: 1,
+    max: 5,
+  },
+  {
+    key: "lookAwaySeconds",
+    label: "视线离开多久算一次（秒，0 为不检查）",
+    min: 0,
+    max: 1800,
+  },
+  { key: "yawTolerance", label: "左右转头容差（度）", min: 5, max: 60 },
+  { key: "pitchTolerance", label: "抬头低头容差（度）", min: 5, max: 60 },
+  {
+    key: "drowsySeconds",
+    label: "闭眼多久算一次（秒，0 为不检查）",
+    min: 0,
+    max: 600,
+  },
+  {
+    key: "blinkThreshold",
+    label: "闭眼判定阈值（0.3–0.95）",
+    min: 0.3,
+    max: 0.95,
+    step: 0.05,
+  },
+  {
+    key: "aiConfidence",
+    label: "AI 把握度达到多少才提醒（0.5–0.99）",
+    min: 0.5,
+    max: 0.99,
+    step: 0.01,
+  },
+];
+function StudyInputs({
+  fields,
+  rules,
+}: {
+  fields: StudyField[];
+  rules: StudyRules;
+}) {
+  return (
+    <div className="settings-fields">
+      {fields.map((f) => (
+        <label key={f.key}>
+          {f.label}
+          <input
+            type="number"
+            name={`study-${f.key}`}
+            min={f.min}
+            max={f.max}
+            step={f.step ?? 1}
+            defaultValue={rules[f.key]}
+            required
+          />
+        </label>
+      ))}
+    </div>
+  );
+}
+const MOOD_NAME: Record<CoachMood, string> = {
+  calm: "查岗中",
+  angry: "看到走神",
+  pleased: "一切正常",
+};
+/** The coach is the referee's own photos; changes apply at the next inspection, not the next day. */
+function CoachSettings() {
+  const { snapshot, act, busy, refresh } = useGame(),
+    coach = snapshot.state.coach,
+    lines = { ...DEFAULT_COACH_LINES, ...coach?.lines };
+  const [uploading, setUploading] = useState<CoachMood | null>(null);
+  async function upload(mood: CoachMood, file: File | null) {
+    setUploading(mood);
+    try {
+      const image = file ? await photoJpeg(file) : null;
+      const res = await fetch("/api/study", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "coachPhoto", mood, image }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      await refresh();
+      toast.success(file ? "照片已更新" : "照片已删除");
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message
+          ? error.message
+          : "照片没有保存，请重试",
+      );
+    } finally {
+      setUploading(null);
+    }
+  }
+  return (
+    <form
+      className="white-panel coach-panel"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const form = new FormData(e.currentTarget),
+          line = (mood: CoachMood) => String(form.get(`line-${mood}`));
+        void act({
+          type: "coachLines",
+          lines: {
+            calm: line("calm"),
+            angry: line("angry"),
+            pleased: line("pleased"),
+          },
+        });
+      }}
+    >
+      <SectionHeading
+        title="学习模式教练"
+        note="用你自己的照片。查岗时教练从教室后门的小窗探头：查岗中、看到走神、一切正常，各一张照片和一句话。修改马上生效。"
+      />
+      <div className="coach-grid">
+        {COACH_MOODS.map((mood) => {
+          const version = coach?.photos?.[mood];
+          return (
+            <div key={mood} className="coach-slot">
+              <DoorWindow
+                src={
+                  version ? `/api/study/media?coach=${mood}&v=${version}` : null
+                }
+                mood={mood}
+              />
+              <strong>{MOOD_NAME[mood]}</strong>
+              <div className="coach-slot-actions">
+                <label className="small-button file-button">
+                  {uploading === mood
+                    ? "上传中…"
+                    : version
+                      ? "换一张"
+                      : "上传照片"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    disabled={uploading !== null}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      if (file) void upload(mood, file);
+                    }}
+                  />
+                </label>
+                {version && (
+                  <button
+                    type="button"
+                    className="text-button danger"
+                    disabled={uploading !== null}
+                    onClick={() => void upload(mood, null)}
+                  >
+                    删除
+                  </button>
+                )}
+              </div>
+              <label>
+                这时说的话
+                <input
+                  name={`line-${mood}`}
+                  defaultValue={lines[mood]}
+                  maxLength={60}
+                  required
+                />
+              </label>
+            </div>
+          );
+        })}
+      </div>
+      <button className="button primary" disabled={busy}>
+        保存教练台词
+      </button>
+    </form>
   );
 }
 function PlayerNameForm({
@@ -1299,6 +1523,15 @@ function SettingsForm({
             (s as unknown as Record<string, unknown>)[field.key] = Number(
               form.get(field.key),
             );
+          s.study = {
+            ...(Object.fromEntries(
+              [...STUDY_FIELDS, ...STUDY_DETECTION].map((f) => [
+                f.key,
+                Number(form.get(`study-${f.key}`)),
+              ]),
+            ) as Omit<StudyRules, "strict">),
+            strict: form.get("study-strict") === "on",
+          };
           void save(s);
         }}
       >
@@ -1442,6 +1675,31 @@ function SettingsForm({
           >
             <Plus size={16} /> 添加里程碑
           </button>
+        </section>
+        <section className="white-panel study-rules-fields">
+          <SectionHeading
+            title="学习模式（可选）"
+            note="通过的学习在当天达标时额外加分；失败的罚金进请客基金。默认宽松：只有特别明显不在学习时才提醒，几次提醒折合 1 次违规。"
+          />
+          <StudyInputs
+            fields={STUDY_FIELDS}
+            rules={withDefaults(settings.study)}
+          />
+          <label className="checkbox-label strict-toggle">
+            <input
+              type="checkbox"
+              name="study-strict"
+              defaultChecked={withDefaults(settings.study).strict}
+            />{" "}
+            严格模式：离开镜头和看手机直接记违规，AI 把握 70% 以上就记违规
+          </label>
+          <details>
+            <summary>检测灵敏度</summary>
+            <StudyInputs
+              fields={STUDY_DETECTION}
+              rules={withDefaults(settings.study)}
+            />
+          </details>
         </section>
         <div className="settings-footer">
           <p>

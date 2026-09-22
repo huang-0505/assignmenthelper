@@ -172,6 +172,7 @@ export function Today() {
         </div>
         <aside className="right-rail">
           <RewardRail />
+          <StudyCard />
           <div className="freeze-panel">
             <span className="freeze-icon">
               <Snowflake size={25} />
@@ -983,6 +984,36 @@ function English({ day }: { day: Day }) {
         </form>
       )}
     </section>
+  );
+}
+function StudyCard() {
+  const { snapshot } = useGame(),
+    day = snapshot.state.days[snapshot.today],
+    rules = day.settings.study,
+    result = snapshot.summary.days.find((d) => d.date === snapshot.today);
+  if (!rules) return null;
+  const passed = result?.study.passed ?? 0,
+    failed = result?.study.failed ?? 0,
+    met = result?.status === "met" || result?.status === "gold";
+  return (
+    <Link href="/study" className="study-card">
+      <span className="study-card-board" aria-hidden="true">
+        {rules.minutes}:00
+      </span>
+      <span>
+        <strong>学习模式 · 可选加分</strong>
+        <p>
+          {passed
+            ? met
+              ? `今天已通过，+${rules.points} 积分`
+              : `今天已通过，完成最低目标后 +${rules.points} 积分`
+            : failed
+              ? `今天有 ${failed} 次没通过，可以再来一次`
+              : `开一场 ${rules.minutes} 分钟晚自习，通过 +${rules.points} 积分`}
+        </p>
+      </span>
+      <ChevronRight size={18} />
+    </Link>
   );
 }
 function RewardRail() {

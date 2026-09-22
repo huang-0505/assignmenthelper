@@ -7,12 +7,37 @@ import {
   latestAnswer,
   weekKey,
 } from "./engine";
+import type { StudyOutcome } from "./study";
 import type { GameState, Grade, Question, Role } from "./types";
 
 // Shared by browser forms and server routes so validation feedback stays in Chinese.
 z.config(z.locales.zhCN());
 
 const short = z.string().trim().max(200);
+const int = (min: number, max: number) => z.number().int().min(min).max(max);
+export const studyRulesSchema = z
+  .object({
+    minutes: int(5, 120),
+    maxStrikes: int(1, 10),
+    warningsPerStrike: int(1, 5),
+    minGap: int(1, 30),
+    maxGap: int(1, 60),
+    points: int(0, 1000),
+    penalty: int(0, 1000),
+    pauseMinutes: int(0, 30),
+    absentSeconds: int(10, 1800),
+    phoneHits: int(1, 5),
+    // 0 switches the check off.
+    lookAwaySeconds: int(0, 1800),
+    yawTolerance: int(5, 60),
+    pitchTolerance: int(5, 60),
+    drowsySeconds: int(0, 600),
+    blinkThreshold: z.number().min(0.3).max(0.95),
+    aiConfidence: z.number().min(0.5).max(0.99),
+    strict: z.boolean(),
+  })
+  .refine((s) => s.minGap <= s.maxGap, "检查间隔的最短值不能大于最长值");
+const coachLine = z.string().trim().min(1).max(60);
 const settingsSchema = z
   .object({
     timezone: z.literal("America/New_York"),
@@ -38,6 +63,7 @@ const settingsSchema = z
       )
       .min(1)
       .max(10),
+    study: studyRulesSchema,
   })
   .refine(
     (s) =>
@@ -113,6 +139,11 @@ export const actionSchema = z.discriminatedUnion("type", [
   }),
   z.object({ id, type: z.literal("redeem") }),
   z.object({ id, type: z.literal("playerName"), name: nameSchema }),
+  z.object({
+    id,
+    type: z.literal("coachLines"),
+    lines: z.object({ calm: coachLine, angry: coachLine, pleased: coachLine }),
+  }),
 ]);
 export type Action = z.infer<typeof actionSchema>;
 
@@ -135,12 +166,15 @@ export function applyAction(
   actor: string,
   now: string,
   bank: Question[],
+  /** Study session outcomes, so redeeming sees the same pool the player sees. */
+  study: StudyOutcome[] = [],
 ) {
   const refereeAction = [
     "settings",
     "override",
     "redeem",
     "playerName",
+    "coachLines",
   ].includes(action.type);
   if (refereeAction !== (role === "referee"))
     throw new Error("你的角色没有这项操作的权限");
@@ -256,7 +290,7 @@ export function applyAction(
       break;
     }
     case "redeem": {
-      const summary = evaluate(state, now);
+      const summary = evaluate(state, now, study);
       if (summary.days.some((d) => d.status === "pending"))
         throw new Error("请先处理待审核日期，再兑换罚金池");
       if (summary.pool < state.settings.penaltyThreshold)
@@ -266,6 +300,9 @@ export function applyAction(
     }
     case "playerName":
       state.playerName = action.name;
+      break;
+    case "coachLines":
+      state.coach = { ...state.coach, lines: action.lines };
       break;
   }
   state.audit.push({
@@ -285,7 +322,9 @@ export function applyAction(
               ? `玩家名字改为「${action.name}」`
               : action.type === "episodes"
                 ? `看剧 ${action.count} 集`
-                : "已保存",
+                : action.type === "coachLines"
+                  ? "修改了学习模式教练台词"
+                  : "已保存",
   });
 }
 

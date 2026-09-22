@@ -1,5 +1,5 @@
 import { applyAction, applyGrade, actionSchema } from "@/lib/actions";
-import { gradeAnswer, DEFAULT_MODELS } from "@/lib/grading";
+import { gradeAnswer, llmConfig } from "@/lib/grading";
 import { bank } from "@/lib/server/bank";
 import {
   requireUser,
@@ -10,6 +10,7 @@ import {
   member,
 } from "@/lib/server/supabase";
 import { snapshot, transact } from "@/lib/server/repository";
+import { loadOutcomes } from "@/lib/server/study";
 export const maxDuration = 60;
 export async function POST(request: Request) {
   try {
@@ -25,32 +26,26 @@ export async function POST(request: Request) {
         400,
       );
     const action = parsed.data,
-      now = new Date().toISOString();
+      now = new Date().toISOString(),
+      study = await loadOutcomes(now);
     let freshAnswer = false;
     let state = await transact((s) => {
       member(s, user);
       freshAnswer = !s.audit.some((a) => a.id === action.id);
-      applyAction(s, action, user.role, user.id, now, bank);
+      applyAction(s, action, user.role, user.id, now, bank, study);
     }, now);
     if (action.type === "answer" && freshAnswer) {
       const grade = await gradeAnswer(
         state.days[action.date].question!,
         action.text,
-        {
-          baseUrl: process.env.LLM_BASE_URL || "https://openrouter.ai/api/v1",
-          apiKey: process.env.LLM_API_KEY,
-          models: (process.env.LLM_MODELS || DEFAULT_MODELS.join(","))
-            .split(",")
-            .map((m) => m.trim())
-            .filter(Boolean),
-        },
+        llmConfig(),
       );
       state = await transact((s) =>
         applyGrade(s, action.date, action.id, grade),
       );
     }
     const finalNow = new Date().toISOString();
-    return Response.json(snapshot(state, member(state, user), finalNow));
+    return Response.json(snapshot(state, member(state, user), finalNow, study));
   } catch (error) {
     return errorResponse(error);
   }

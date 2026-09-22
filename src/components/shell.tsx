@@ -14,15 +14,21 @@ import {
   Sparkles,
   Sun,
   Target,
+  Timer,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useGame } from "./provider";
 import { Modal } from "./ui";
+const study = { href: "/study", label: "学习模式", icon: Timer },
+  history = { href: "/history", label: "打卡日历", icon: CalendarDays },
+  stats = { href: "/stats", label: "成长记录", icon: ChartNoAxesCombined },
+  projects = { href: "/projects", label: "我的项目", icon: FolderOpen };
 const nav = [
   { href: "/", label: "今日挑战", icon: Sun },
-  { href: "/history", label: "打卡日历", icon: CalendarDays },
-  { href: "/stats", label: "成长记录", icon: ChartNoAxesCombined },
-  { href: "/projects", label: "我的项目", icon: FolderOpen },
+  study,
+  history,
+  stats,
+  projects,
 ];
 export function Shell({ children }: { children: ReactNode }) {
   const { snapshot, switchRole, logout } = useGame(),
@@ -52,8 +58,12 @@ export function Shell({ children }: { children: ReactNode }) {
     snapshot.role === "referee"
       ? [
           { href: "/referee", label: "裁判工作台", icon: ShieldCheck },
-          ...nav.slice(1),
+          study,
+          history,
+          stats,
           { href: "/settings", label: "挑战设置", icon: Settings2 },
+          // The phone bar shows the first five; projects matter least there.
+          projects,
         ]
       : nav;
   return (

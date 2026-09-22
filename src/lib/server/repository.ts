@@ -2,6 +2,7 @@ import "server-only";
 import { adminClient } from "./supabase";
 import { advance, evaluate, newGame } from "../engine";
 import { bank } from "./bank";
+import type { StudyOutcome } from "../study";
 import type { GameState, Role, Snapshot } from "../types";
 
 export async function transact(
@@ -34,12 +35,13 @@ export function snapshot(
   state: GameState,
   user: { role: Role; name: string },
   now: string,
+  study: StudyOutcome[] = [],
 ): Snapshot {
   return {
     mode: "live",
     ...user,
     state,
-    summary: evaluate(state, now),
+    summary: evaluate(state, now, study),
     today: Object.keys(state.days).sort().at(-1)!,
     serverTime: now,
   };

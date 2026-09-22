@@ -1,4 +1,5 @@
 import { Temporal } from "@js-temporal/polyfill";
+import { DEFAULT_STUDY, type StudyOutcome } from "./study";
 import type {
   Answer,
   BqTask,
@@ -29,6 +30,7 @@ export const DEFAULT_SETTINGS: Settings = {
     { streak: 14, text: "一起去一日游！" },
     { streak: 21, text: "一份裁判用心挑的小礼物！" },
   ],
+  study: DEFAULT_STUDY,
 };
 
 export function addDays(date: string, n: number) {
@@ -276,6 +278,13 @@ export function advance(
       day.episodes ??= 0;
     }
   }
+  if (state.settings.study === undefined) {
+    state.settings.study = structuredClone(DEFAULT_STUDY);
+    if (state.nextSettings)
+      state.nextSettings.study ??= structuredClone(DEFAULT_STUDY);
+    if (Temporal.Instant.compare(now, day.closesAt) < 0)
+      day.settings.study = structuredClone(DEFAULT_STUDY);
+  }
   let count = 0;
   while (Temporal.Instant.compare(now, day.closesAt) >= 0) {
     if (++count > 3660) throw new Error("超过十年的数据需要管理员迁移");
@@ -317,7 +326,14 @@ export function requirements(day: Day) {
     met: checks.every(Boolean),
   };
 }
-export function evaluate(state: GameState, now: string): Summary {
+export function evaluate(
+  state: GameState,
+  now: string,
+  study: StudyOutcome[] = [],
+): Summary {
+  const sessionsByDay = new Map<string, StudyOutcome[]>();
+  for (const o of study)
+    sessionsByDay.set(o.day, [...(sessionsByDay.get(o.day) ?? []), o]);
   let streak = 0,
     bestStreak = 0,
     points = 0,
@@ -334,7 +350,12 @@ export function evaluate(state: GameState, now: string): Summary {
     const week = weekKey(day.date),
       closed = Temporal.Instant.compare(now, day.closesAt) >= 0;
     const req = requirements(day),
-      answer = latestAnswer(day);
+      answer = latestAnswer(day),
+      sessions = sessionsByDay.get(day.date) ?? [],
+      studied = sessions.find((o) => o.passed),
+      studyPenalty = sessions
+        .filter((o) => o.failed)
+        .reduce((sum, o) => sum + o.penalty, 0);
     let status: Summary["days"][number]["status"] = "open",
       earned = 0,
       penalty = 0;
@@ -354,10 +375,12 @@ export function evaluate(state: GameState, now: string): Summary {
           completedBq(state, day.date).size === 12 &&
           [...completedBq(state, day.date).values()].every((p) => p.practice);
         if (retell) retellWeeks.add(week);
+        // A passed study session is a bonus like the others: once per day, only on a met day.
         earned =
           day.settings.basePoints +
-          (bonus + Number(Boolean(retell))) * day.settings.bonusPoints;
-        status = bonus || retell ? "gold" : "met";
+          (bonus + Number(Boolean(retell))) * day.settings.bonusPoints +
+          (studied?.points ?? 0);
+        status = bonus || retell || studied ? "gold" : "met";
         streak += 1;
         for (const reward of day.settings.rewards) {
           if (
@@ -390,6 +413,8 @@ export function evaluate(state: GameState, now: string): Summary {
         }
       }
     }
+    // A failed session costs its penalty whether or not the day itself is settled yet.
+    penalty += studyPenalty;
     points += earned;
     penalties += penalty;
     bestStreak = Math.max(bestStreak, streak);
@@ -401,6 +426,10 @@ export function evaluate(state: GameState, now: string): Summary {
       freezes,
       penalty,
       ...req,
+      study: {
+        passed: sessions.filter((o) => o.passed).length,
+        failed: sessions.filter((o) => o.failed).length,
+      },
     });
   }
   return {

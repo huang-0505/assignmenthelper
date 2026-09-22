@@ -10,6 +10,16 @@ export const DEFAULT_MODELS = [
   "google/gemma-4-31b-it:free",
   "nvidia/nemotron-3-super-120b-a12b:free",
 ];
+export function llmConfig(env = process.env) {
+  return {
+    baseUrl: env.LLM_BASE_URL || "https://openrouter.ai/api/v1",
+    apiKey: env.LLM_API_KEY,
+    models: (env.LLM_MODELS || DEFAULT_MODELS.join(","))
+      .split(",")
+      .map((m) => m.trim())
+      .filter(Boolean),
+  };
+}
 export async function gradeAnswer(
   question: Question,
   answer: string,

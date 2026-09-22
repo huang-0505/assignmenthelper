@@ -39,6 +39,7 @@ vi.mock("@/lib/server/repository", async (importOriginal) => {
     },
   };
 });
+vi.mock("@/lib/server/study", () => ({ loadOutcomes: async () => [] }));
 const auth = await import("../src/app/api/auth/route");
 const stateRoute = await import("../src/app/api/state/route");
 const actionRoute = await import("../src/app/api/action/route");
