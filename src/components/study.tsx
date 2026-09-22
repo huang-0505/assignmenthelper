@@ -266,10 +266,11 @@ function PlayerStudy({
   const session = view.sessions.find((s) => s.id === sessionId) ?? null;
   const [consent, setConsent] = useState(() => saved(KEYS.consent)),
     [consentOpen, setConsentOpen] = useState(false),
-    [wantAi, setWantAi] = useState(() => saved(KEYS.ai) === "1"),
-    [wantScreen, setWantScreen] = useState(() => saved(KEYS.screen) === "1"),
-    [share, setShare] = useState(() => saved(KEYS.share) === "1"),
-    [knockOn, setKnockOn] = useState(() => saved(KEYS.knock) === "1"),
+    // Every check starts on; a switch she turned off herself stays off.
+    [wantAi, setWantAi] = useState(() => saved(KEYS.ai) !== "0"),
+    [wantScreen, setWantScreen] = useState(() => saved(KEYS.screen) !== "0"),
+    [share, setShare] = useState(() => saved(KEYS.share) !== "0"),
+    [knockOn, setKnockOn] = useState(() => saved(KEYS.knock) !== "0"),
     [bigCam, setBigCam] = useState(() => saved(KEYS.selfView) === "big"),
     [goal, setGoal] = useState(""),
     [goals, setGoals] = useState<string[]>(["自由学习"]),
@@ -294,7 +295,9 @@ function PlayerStudy({
     view.sessions.map((s) => studyOutcome(s, view.serverTime)),
   ).filter((o) => o.day === snapshot.today);
   const rewardRemaining = Math.max(0, rewardLimit - rewardsToday.length);
-  const aiOn = Boolean(view.ai) && wantAi && consent === "yes";
+  const aiOn = Boolean(view.ai) && wantAi && consent === "yes",
+    // The switch shows her intent; frames are only sent once she has agreed on the consent screen.
+    aiWanted = Boolean(view.ai) && wantAi && consent !== "no";
   const [baseline, setBaseline] = useState<Pose | null>(() => {
     try {
       return JSON.parse(saved(KEYS.baseline) ?? "null");
@@ -473,12 +476,13 @@ function PlayerStudy({
     setPhase("ready");
   }
   async function start() {
-    // Audio may only start from a click; this is the click.
+    // Audio and the screen picker may only start from a click; this is the click.
     if (knockOn) primeKnock();
+    if (aiOn && wantScreen && !screen.current) await shareScreen();
     const reply = await post({
       type: "start",
       ai: aiOn,
-      screen: aiOn && screenOn,
+      screen: aiOn && Boolean(screen.current),
       share,
       goal: combinedGoal || "自由学习",
       minutes,
@@ -755,7 +759,7 @@ function PlayerStudy({
             onStart={begin}
           >
             <Switch
-              checked={aiOn}
+              checked={aiWanted}
               disabled={!view.ai}
               onChange={(v) => {
                 setting(KEYS.ai, v, setWantAi);
@@ -770,15 +774,17 @@ function PlayerStudy({
                   ? "服务器还没有配置 AI（GEMINI_API_KEY），这次只用本机检测。"
                   : consent === "no" && wantAi
                     ? "你之前没有同意发送画面，打开开关可以重新查看说明。"
-                    : `查岗时把 1 张缩小的画面发给 ${view.ai.label} 判断你在做什么。`
+                    : consent !== "yes" && wantAi
+                      ? "点开始时会先请你看一眼说明并同意，同意后才会发送画面。"
+                      : `查岗时把 1 张缩小的画面发给 ${view.ai.label} 判断你在做什么。`
               }
             />
             <Switch
-              checked={aiOn && wantScreen}
-              disabled={!aiOn}
+              checked={aiWanted && wantScreen}
+              disabled={!aiWanted}
               onChange={(v) => setting(KEYS.screen, v, setWantScreen)}
               label="同时看屏幕"
-              note="开始前选择共享整个屏幕，只在查岗那一刻截一帧给 AI。需要先打开 AI 查岗。"
+              note="开始时浏览器会让你选择共享的屏幕，只在查岗那一刻截一帧给 AI。需要先打开 AI 查岗。"
             />
             <Switch
               checked={share}
