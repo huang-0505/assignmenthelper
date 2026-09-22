@@ -1018,8 +1018,11 @@ main#main {
 .english-section {
   border-left-color: #9fb6ee;
 }
-.english-section .bq-header > .check-badge {
-  margin-left: auto;
+.english-section .bq-preview-footer {
+  margin-top: 14px;
+}
+.english-section .bq-preview-footer > .over {
+  color: #b03243;
 }
 .episode-stepper {
   display: flex;

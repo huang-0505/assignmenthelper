@@ -881,10 +881,20 @@ function Bq({ day }: { day: Day }) {
 function English({ day }: { day: Day }) {
   const { act, busy } = useGame(),
     target = day.settings.episodes ?? 0,
-    saved = day.episodes ?? 0;
+    saved = day.episodes ?? 0,
+    done = episodesDone(day);
   const [count, setCount] = useState(saved),
-    [note, setNote] = useState(day.episodeNote ?? "");
+    [note, setNote] = useState(day.episodeNote ?? ""),
+    [expanded, setExpanded] = useState(false);
   if (!target) return null;
+  const status =
+    saved === target
+      ? `刚好 ${target} 集，今天的英语任务完成！`
+      : saved > target
+        ? `已记录 ${saved} 集，超过了 ${target} 集，今天的英语任务不算完成。`
+        : saved
+          ? `已记录 ${saved} 集，还差 ${target - saved} 集。`
+          : `看完后记录为 ${target} 集并保存。`;
   return (
     <section className="bq-section english-section">
       <div className="bq-header">
@@ -898,64 +908,80 @@ function English({ day }: { day: Day }) {
             集才算完成，多看、少看都不算。
           </p>
         </div>
-        {episodesDone(day) && (
-          <span className="check-badge" aria-label="已达标">
-            <Check size={15} />
-          </span>
-        )}
+        <button
+          className="icon-button"
+          aria-label={expanded ? "收起看剧记录" : "展开看剧记录"}
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+        >
+          {done ? (
+            <Check size={21} />
+          ) : (
+            <ChevronDown size={21} className={expanded ? "rotated" : ""} />
+          )}
+        </button>
       </div>
-      <form
-        className="stack-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void act({ type: "episodes", date: day.date, count, note });
-        }}
-      >
-        <div className="episode-stepper" role="group" aria-label="今天看了几集">
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="少记一集"
-            disabled={count <= 0}
-            onClick={() => setCount(count - 1)}
-          >
-            <Minus size={18} />
-          </button>
-          <strong aria-live="polite">{count}</strong>
-          <span>集</span>
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="多记一集"
-            disabled={count >= 20}
-            onClick={() => setCount(count + 1)}
-          >
-            <Plus size={18} />
+      {!expanded && (
+        <div className="bq-preview-footer">
+          <span className={saved > target ? "over" : ""}>{status}</span>
+          <button className="text-button" onClick={() => setExpanded(true)}>
+            {done ? "查看记录" : "记录看剧"}
+            <ChevronRight size={16} />
           </button>
         </div>
-        <label>
-          剧名 / 今天学到的表达 <span className="optional">可选</span>
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            rows={2}
-            maxLength={500}
-            placeholder="例如：Friends S01E03 · I'm on it."
-          />
-        </label>
-        <p className={saved > target ? "form-error small" : "muted small"}>
-          {saved === target
-            ? `刚好 ${target} 集，今天的英语任务完成！`
-            : saved > target
-              ? `已记录 ${saved} 集，超过了 ${target} 集，今天的英语任务不算完成。`
-              : saved
-                ? `已记录 ${saved} 集，还差 ${target - saved} 集。`
-                : `看完后记录为 ${target} 集并保存。`}
-        </p>
-        <button className="button primary" disabled={busy}>
-          保存看剧记录
-        </button>
-      </form>
+      )}
+      {expanded && (
+        <form
+          className="stack-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void act({ type: "episodes", date: day.date, count, note });
+          }}
+        >
+          <div
+            className="episode-stepper"
+            role="group"
+            aria-label="今天看了几集"
+          >
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="少记一集"
+              disabled={count <= 0}
+              onClick={() => setCount(count - 1)}
+            >
+              <Minus size={18} />
+            </button>
+            <strong aria-live="polite">{count}</strong>
+            <span>集</span>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="多记一集"
+              disabled={count >= 20}
+              onClick={() => setCount(count + 1)}
+            >
+              <Plus size={18} />
+            </button>
+          </div>
+          <label>
+            剧名 / 今天学到的表达 <span className="optional">可选</span>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              maxLength={500}
+              placeholder="例如：Friends S01E03 · I'm on it."
+            />
+          </label>
+          <p className={saved > target ? "form-error small" : "muted small"}>
+            {status}
+          </p>
+          <button className="button primary" disabled={busy}>
+            保存看剧记录
+          </button>
+        </form>
+      )}
     </section>
   );
 }
