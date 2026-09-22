@@ -44,22 +44,22 @@ cp -n .env.example .env.local
 
 填写：
 
-| 变量                        | 来源 / 用途                                                                                                         |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_SUPABASE_URL`  | Supabase 项目的 Project URL（只在服务端使用）                                                                       |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service_role key 或 secret key，只能保存在服务端                                                           |
-| `REFEREE_KEY`               | 随机长字符串：裁判专属链接的密钥，同时用于签名会话 cookie                                                           |
-| `LLM_BASE_URL`              | 默认 `https://openrouter.ai/api/v1`；其他 OpenAI-compatible 服务填写其 API base URL                                 |
-| `LLM_API_KEY`               | 对应服务商的 API key，只在服务器使用；留空时全部转裁判审核                                                          |
-| `LLM_MODELS`                | 按优先级排列、用逗号分隔的模型 ID；默认先用便宜的 `qwen/qwen3.7-flash`，再依次试 OpenRouter 的 `:free` 模型          |
-| `APP_URL`                   | 本地可留空（自动使用请求的 origin）；上线后必须设为最终 HTTPS 域名                                                  |
-| `CRON_SECRET`               | 随机长字符串，用于验证 Vercel cron 请求                                                                             |
-| `DEMO_MODE`                 | 正式使用设为 `false`；明确设为 `true` 可展示独立本机演示                                                            |
-| `GEMINI_API_KEY`            | Gemini API key（可选）：学习模式 AI 查岗，以及面试答案和学习总结的评分；留空时只用本机检测、评分走下面的 `LLM_*` 链 |
-| `GRADER`                    | 留空时有 Gemini key 就优先用 Gemini 评分，失败再走 `LLM_*` 链；设为 `openai` 只用 `LLM_*` 链                        |
-| `GEMINI_MODEL`              | 默认 `gemini-3.5-flash-lite`                                                                                        |
-| `VISION_PROVIDER`           | 留空为 Gemini；设为 `openai` 并填 `VISION_MODEL` 可改用任意 OpenAI 兼容的视觉模型                                   |
-| `GEMINI_FALLBACK_MODELS`    | 主模型返回 503 / 429（过载）时依次再试的 Gemini 模型，逗号分隔；默认 `gemini-3.1-flash-lite`，留空关闭             |
+| 变量                        | 来源 / 用途                                                                                                                                              |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`  | Supabase 项目的 Project URL（只在服务端使用）                                                                                                            |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service_role key 或 secret key，只能保存在服务端                                                                                                |
+| `REFEREE_KEY`               | 随机长字符串：裁判专属链接的密钥，同时用于签名会话 cookie                                                                                                |
+| `LLM_BASE_URL`              | 默认 `https://openrouter.ai/api/v1`；其他 OpenAI-compatible 服务填写其 API base URL                                                                      |
+| `LLM_API_KEY`               | 对应服务商的 API key，只在服务器使用；留空时全部转裁判审核                                                                                               |
+| `LLM_MODELS`                | 按优先级排列、用逗号分隔的模型 ID；默认先用便宜的 `qwen/qwen3.7-flash`，再依次试 OpenRouter 的 `:free` 模型                                              |
+| `APP_URL`                   | 本地可留空（自动使用请求的 origin）；上线后必须设为最终 HTTPS 域名                                                                                       |
+| `CRON_SECRET`               | 随机长字符串，用于验证 Vercel cron 请求                                                                                                                  |
+| `DEMO_MODE`                 | 正式使用设为 `false`；明确设为 `true` 可展示独立本机演示                                                                                                 |
+| `GEMINI_API_KEY`            | Gemini API key（可选）：学习模式 AI 查岗，以及面试答案和学习总结的评分；留空时只用本机检测、评分走下面的 `LLM_*` 链                                      |
+| `GRADER`                    | 留空时有 Gemini key 就优先用 Gemini 评分，失败再走 `LLM_*` 链；设为 `openai` 只用 `LLM_*` 链                                                             |
+| `GEMINI_MODEL`              | 默认 `gemini-3.5-flash-lite`                                                                                                                             |
+| `VISION_PROVIDER`           | 留空为 Gemini；设为 `openai` 并填 `VISION_MODEL` 可改用任意 OpenAI 兼容的视觉模型                                                                        |
+| `GEMINI_FALLBACK_MODELS`    | 主模型返回 503 / 429（过载）时依次再试的 Gemini 模型，逗号分隔；默认 `gemini-3.1-flash-lite`，留空关闭                                                   |
 | `VISION_FALLBACK_MODELS`    | Gemini 整体失败时，用 `LLM_*` 凭据依次再试的 OpenAI 兼容视觉模型；默认 `qwen/qwen3.7-flash,google/gemma-4-31b-it:free`（前者约 $0.00005 一次），留空关闭 |
 
 可以用以下命令分别生成 `CRON_SECRET` 和 `REFEREE_KEY`，在自己的终端里复制到环境变量。不要提交 `.env.local`。
@@ -204,5 +204,5 @@ PGlite 在本机运行真正的 Postgres 引擎：验证建表迁移、RLS / gra
 - 新学习场次提供 20 / 30 / 45 分钟，默认积分为 15 / 25 / 40；教练可在挑战设置调整三档奖励和每日奖励次数（默认三档合计 5 次，范围 1–20），设置沿用下一训练日生效规则。
 - 通过后获得奖励名额，当天最低任务完成后积分入账；名额耗尽后仍可学习，继续保存记录。失败不占奖励名额。按纽约训练日（含自定义截止时刻）归属、按场次开始顺序重算；跨午夜的场次归开始所在训练日。重复请求不会重复领奖，推翻误判后重新分配奖励名额。
 - 旧场次保持当时积分与每日一次的旧规则；升级当天已获得的旧奖励计入当天共用次数。每场保存时长、积分及次数上限快照，之后修改不会重写历史。
-- 首页联系任务、选择 Networking 目标时、学习进行中都有 NetworkBunny 的新标签页入口。这里只提供网站入口，不共享账号、不自动同步联系人数；实际联系后在训练营手动记录。前往其他网站时保留学习标签页和摄像头。
+- 首页投递任务提供 LinkedIn Jobs 入口；首页联系任务、选择 Networking 目标时、学习进行中都有 NetworkBunny 的入口。两者都在新标签页打开，只提供网站入口，不共享账号，也不自动同步投递或联系人数；完成后在训练营手动记录。前往其他网站时保留学习标签页和摄像头。
 - AI 查岗和总结说明明确将投递、简历修改、职业 Networking 视为有效投入；摄像头和本机检测仍沿用既有规则。

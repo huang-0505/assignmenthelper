@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { NetworkingLink } from "./networking-link";
+import { JobSearchLink, NetworkingLink } from "./networking-link";
 import { WeeklyPlanCard } from "./weekly-plan";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
@@ -492,7 +492,7 @@ function CountTask({
               ? "最低目标完成，继续可以加分"
               : `再${applications ? "投递" : "联系"} ${minimum - count} ${unit}，就能点亮这项任务`}
         </p>
-        {!applications && <NetworkingLink />}
+        {applications ? <JobSearchLink /> : <NetworkingLink />}
         <div className="count-task-footer">
           <span>
             <Star size={13} /> {bonus} {applications ? "份" : "人"}额外 +
