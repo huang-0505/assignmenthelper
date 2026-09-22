@@ -11,8 +11,10 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import {
+  Bell,
   Camera,
   Check,
   DoorOpen,
@@ -22,6 +24,7 @@ import {
   Minimize2,
   Monitor,
   Pause,
+  PictureInPicture2,
   Play,
   ShieldCheck,
   Smartphone,
@@ -101,6 +104,40 @@ const KEYS = {
   knock: "offer-quest-study-knock",
   selfView: "offer-quest-study-selfview",
 };
+type PipApi = {
+  requestWindow(options?: { width?: number; height?: number }): Promise<Window>;
+};
+/** Chrome and Edge can float a small always-on-top window with real page content in it. */
+const pipApi = () =>
+  typeof window === "undefined"
+    ? undefined
+    : (window as Window & { documentPictureInPicture?: PipApi })
+        .documentPictureInPicture;
+/** The floating window starts empty: give it this page's styles and a base for relative URLs. */
+function dressPip(w: Window) {
+  const doc = w.document,
+    base = doc.createElement("base");
+  base.href = `${location.origin}/`;
+  doc.head.append(base);
+  for (const sheet of [...document.styleSheets]) {
+    if (sheet.href) {
+      const link = doc.createElement("link");
+      link.rel = "stylesheet";
+      link.href = sheet.href;
+      doc.head.append(link);
+      continue;
+    }
+    try {
+      const style = doc.createElement("style");
+      style.textContent = [...sheet.cssRules].map((r) => r.cssText).join("\n");
+      doc.head.append(style);
+    } catch {
+      /* A stylesheet we may not read is one the door does not need. */
+    }
+  }
+  doc.title = "教练在后门";
+  doc.body.className = "pip-body";
+}
 // The tab title says when the coach is at the door, for the moments the page is behind her notes.
 let pageTitle = "";
 function flashTitle(text: string | null) {
@@ -314,6 +351,12 @@ function PlayerStudy({
     [coach, setCoach] = useState<CoachEvent | null>(null),
     [aiDown, setAiDown] = useState(false),
     [struckSeen, setStruckSeen] = useState(false),
+    [pip, setPip] = useState<Window | null>(null),
+    [notifyOn, setNotifyOn] = useState(
+      () =>
+        typeof Notification !== "undefined" &&
+        Notification.permission === "granted",
+    ),
     [, setTick] = useState(0);
 
   const video = useRef<HTMLVideoElement | null>(null),
@@ -325,7 +368,11 @@ function PlayerStudy({
     coachTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined),
     startAfterConsent = useRef(false),
     seenVisits = useRef(new Set<string>()),
-    visitUntil = useRef(0);
+    visitUntil = useRef(0),
+    // The floating door and its own small camera view, which keeps getting frames while the tab is hidden.
+    pipRef = useRef<Window | null>(null),
+    pipVideo = useRef<HTMLVideoElement | null>(null),
+    notifyRef = useRef(notifyOn);
   // Timers read the latest values through refs so they never restart mid-session.
   const latest = useRef({
     session,
@@ -346,6 +393,7 @@ function PlayerStudy({
       post,
       knockOn,
     };
+    notifyRef.current = notifyOn;
   });
 
   const attach = useCallback((el: HTMLVideoElement | null) => {
@@ -355,10 +403,21 @@ function PlayerStudy({
       void el.play().catch(() => {});
     }
   }, []);
+  const attachPip = useCallback((el: HTMLVideoElement | null) => {
+    pipVideo.current = el;
+    if (el && camera.current && el.srcObject !== camera.current) {
+      el.srcObject = camera.current;
+      void el.play().catch(() => {});
+    }
+  }, []);
+  /** Detection reads the floating view while it has frames: the page's own view may freeze in a hidden tab. */
+  const activeVideo = () =>
+    pipVideo.current?.videoWidth ? pipVideo.current : video.current;
   const stopCamera = useCallback(() => {
     camera.current?.getTracks().forEach((t) => t.stop());
     camera.current = null;
     if (video.current) video.current.srcObject = null;
+    if (pipVideo.current) pipVideo.current.srcObject = null;
     setCameraOn(false);
   }, []);
   const stopAll = useCallback(() => {
@@ -371,6 +430,34 @@ function PlayerStudy({
     flashTitle(null);
   }, [stopCamera]);
   useEffect(() => stopAll, [stopAll]);
+  useEffect(() => () => pipRef.current?.close(), []);
+  // The floating door stays through the running session and the summary, then goes.
+  useEffect(() => {
+    if (!["running", "paused", "summary"].includes(phase)) pipRef.current?.close();
+  }, [phase]);
+  async function openPip() {
+    const api = pipApi();
+    if (!api) return;
+    try {
+      const w = await api.requestWindow({ width: 280, height: 470 });
+      dressPip(w);
+      w.addEventListener("pagehide", () => {
+        pipRef.current = null;
+        pipVideo.current = null;
+        setPip(null);
+      });
+      pipRef.current = w;
+      setPip(w);
+    } catch {
+      toast.error("没能打开桌面上的小窗，请再点一次");
+    }
+  }
+  async function enableNotifications() {
+    if (typeof Notification === "undefined") return;
+    const answer = await Notification.requestPermission();
+    setNotifyOn(answer === "granted");
+    if (answer !== "granted") toast("没有开启桌面提醒，可以在浏览器的网站设置里打开");
+  }
 
   async function startCamera() {
     if (!navigator.mediaDevices?.getUserMedia)
@@ -388,6 +475,7 @@ function PlayerStudy({
       .getVideoTracks()[0]
       ?.addEventListener("ended", () => setCameraLost(true));
     attach(video.current);
+    attachPip(pipVideo.current);
     setCameraLost(false);
     setCameraOn(true);
   }
@@ -419,6 +507,28 @@ function PlayerStudy({
     setCoach({ ...event, id: Date.now() });
     if (event.visit) visitUntil.current = Date.now() + ms;
     flashTitle(event.mood === "angry" ? "👀 教练在后门" : "🚪 教练来了");
+    // Routine checks stay quiet; the referee in person or a caught lapse knocks.
+    const matters = event.visit || event.mood === "angry";
+    if (matters && latest.current.knockOn) knock();
+    if (
+      matters &&
+      document.hidden &&
+      !pipRef.current &&
+      notifyRef.current &&
+      typeof Notification !== "undefined"
+    )
+      try {
+        const src = coachSrc(view, event.mood);
+        new Notification(event.visit ? "裁判来后门看你了" : "教练在后门", {
+          body: [event.line ?? view.coach.lines[event.mood], event.detail]
+            .filter(Boolean)
+            .join(" · "),
+          icon: src ? new URL(src, location.origin).href : undefined,
+          tag: "offer-quest-coach",
+        });
+      } catch {
+        /* A blocked notification is not worth interrupting the session for. */
+      }
     if (ms)
       coachTimer.current = setTimeout(() => {
         setCoach(null);
@@ -427,14 +537,13 @@ function PlayerStudy({
   }
   // The referee opened the door in person: it stays open longer, and the referee learns she saw it.
   function arrive(visit: StudyVisit) {
-    const { session: s, post: send, knockOn: sound } = latest.current;
+    const { session: s, post: send } = latest.current;
     if (!s || seenVisits.current.has(visit.id)) return;
     seenVisits.current.add(visit.id);
     showCoach(
       { mood: visit.mood, line: visit.line, tag: "裁判来了", visit: true },
       10_000,
     );
-    if (sound) knock();
     void send({ type: "visitSeen", sessionId: s.id, visitId: visit.id }, true);
   }
 
@@ -560,8 +669,8 @@ function PlayerStudy({
     if (!s) return;
     const rules = withDefaults(s.rules),
       kind = localKind(source, rules);
-    const snapshot =
-      sharing && video.current ? captureJpeg(video.current, 320) : undefined;
+    const frame = activeVideo();
+    const snapshot = sharing && frame ? captureJpeg(frame, 320) : undefined;
     const reply = await send(
       {
         type: "event",
@@ -582,11 +691,12 @@ function PlayerStudy({
   }
   async function inspect() {
     const { session: s, aiDown: down, post: send } = latest.current;
-    if (!s || !video.current) return;
+    const frameSource = activeVideo();
+    if (!s || !frameSource) return;
     showCoach({ mood: "calm", tag: "查岗", inspecting: true }, 0);
     // A failed AI check falls back to the camera for this inspection only; the next one tries again.
     if (s.layers.ai) {
-      const cameraFrame = captureJpeg(video.current, 320);
+      const cameraFrame = captureJpeg(frameSource, 320);
       const screenFrame =
         screen.current && screenVideo.current
           ? captureJpeg(screenVideo.current, 960, 0.6)
@@ -634,7 +744,7 @@ function PlayerStudy({
   useEffect(() => {
     if (phase !== "running") return;
     return ticker(SAMPLE_MS, () => {
-      const v = video.current,
+      const v = activeVideo(),
         d = detector.current,
         t = tracker.current;
       if (!v || !d || !t) return;
@@ -668,26 +778,29 @@ function PlayerStudy({
   // Coach inspections at random, unannounced moments.
   useEffect(() => {
     if (phase !== "running" || !session) return;
-    let timer: ReturnType<typeof setTimeout>;
-    const schedule = () => {
-      timer = setTimeout(async () => {
-        await inspect();
-        schedule();
-      }, inspectionDelay(session.rules));
-    };
-    schedule();
-    return () => clearTimeout(timer);
+    let due = Date.now() + inspectionDelay(session.rules),
+      busy = false;
+    return ticker(1000, async () => {
+      if (busy || Date.now() < due) return;
+      busy = true;
+      await inspect();
+      due = Date.now() + inspectionDelay(session.rules);
+      busy = false;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one schedule per running stretch
   }, [phase, sessionId]);
   // The clock: end of timer, and a pause that ran out.
   useEffect(() => {
     if (phase !== "running" && phase !== "paused") return;
-    const id = setInterval(async () => {
+    let done = false;
+    const stop = ticker(1000, async () => {
+      if (done) return;
       setTick((n) => n + 1);
       const s = latest.current.session;
       if (!s) return;
       if (phase === "running" && Date.parse(s.endsAt) <= now()) {
-        clearInterval(id);
+        done = true;
+        stop();
         stopAll();
         await latest.current.post({ type: "heartbeat", sessionId: s.id }, true);
         setPhase("summary");
@@ -697,11 +810,15 @@ function PlayerStudy({
         s.pausedAt &&
         now() > Date.parse(s.pausedAt) + s.rules.pauseMinutes * 60_000 + 31_000
       ) {
-        clearInterval(id);
+        done = true;
+        stop();
         await reload();
       }
-    }, 1000);
-    return () => clearInterval(id);
+    });
+    return () => {
+      done = true;
+      stop();
+    };
   }, [phase, now, reload, stopAll]);
   // The server ended it (left too long, pause ran over): show the result.
   useEffect(() => {
@@ -1003,8 +1120,41 @@ function PlayerStudy({
           }
           struckOut={session.result.struckOut && !struckSeen}
           onKeepGoing={() => setStruckSeen(true)}
+          desk={
+            <DeskDoor
+              floating={Boolean(pip)}
+              canFloat={Boolean(pipApi())}
+              notifyOn={notifyOn}
+              onFloat={() => void openPip()}
+              onUnfloat={() => pip?.close()}
+              onNotify={() => void enableNotifications()}
+            />
+          }
         />
       )}
+
+      {pip &&
+        session &&
+        ["running", "paused", "summary"].includes(phase) &&
+        createPortal(
+          <PipDoor
+            view={view}
+            session={session}
+            coach={coach}
+            phase={phase}
+            remaining={Date.parse(session.endsAt) - now()}
+            pauseLeft={
+              session.pausedAt
+                ? Date.parse(session.pausedAt) +
+                  session.rules.pauseMinutes * 60_000 -
+                  now()
+                : 0
+            }
+            attach={attachPip}
+            onEnd={() => void endEarly()}
+          />,
+          pip.document.body,
+        )}
 
       {phase === "summary" && session && (
         <SummaryForm session={session} onSubmit={submitSummary} />
@@ -1319,6 +1469,7 @@ function Hud({
   onRetryCamera,
   struckOut,
   onKeepGoing,
+  desk,
 }: {
   view: StudyView;
   session: ViewSession;
@@ -1338,6 +1489,7 @@ function Hud({
   onRetryCamera: () => void;
   struckOut: boolean;
   onKeepGoing: () => void;
+  desk: ReactNode;
 }) {
   const r = session.result,
     rules = withDefaults(session.rules);
@@ -1489,6 +1641,7 @@ function Hud({
           )}
         </div>
       </div>
+      {!paused && desk}
       <NetworkingLink />
       <p className="muted small">
         去其他网站学习时，请保留这个学习标签页和摄像头。不要关闭本页；设备休眠或连接中断可能影响本场记录。
@@ -1515,6 +1668,135 @@ function Hud({
         </button>
       </div>
     </>
+  );
+}
+
+/** Put the door on the desktop, or, where the browser cannot, ask for system notifications. */
+function DeskDoor({
+  floating,
+  canFloat,
+  notifyOn,
+  onFloat,
+  onUnfloat,
+  onNotify,
+}: {
+  floating: boolean;
+  canFloat: boolean;
+  notifyOn: boolean;
+  onFloat: () => void;
+  onUnfloat: () => void;
+  onNotify: () => void;
+}) {
+  if (canFloat)
+    return (
+      <div className="desk-door">
+        {floating ? (
+          <>
+            <p>
+              <PictureInPicture2 size={16} />{" "}
+              门已经放在桌面上了，切到别的网页或软件也看得到。
+            </p>
+            <button className="text-button" onClick={onUnfloat}>
+              收回来
+            </button>
+          </>
+        ) : (
+          <>
+            <button className="button secondary" onClick={onFloat}>
+              <PictureInPicture2 size={16} /> 把门放到桌面上
+            </button>
+            <p>
+              要去别的网页或软件学习时点一下：门会浮在所有窗口最上面，教练来查岗、裁判来开门都看得到。
+            </p>
+          </>
+        )}
+      </div>
+    );
+  if (typeof Notification === "undefined" || Notification.permission === "denied")
+    return null;
+  return (
+    <div className="desk-door">
+      {notifyOn ? (
+        <p>
+          <Bell size={16} />{" "}
+          桌面提醒已开启：裁判来开门、或看到走神时，会弹出系统提醒。
+        </p>
+      ) : (
+        <>
+          <button className="button secondary" onClick={onNotify}>
+            <Bell size={16} /> 开启桌面提醒
+          </button>
+          <p>
+            这个浏览器不能把门放到桌面上（Chrome 和 Edge 可以）。开启后，你在别的页面时，裁判来开门或看到走神会弹出系统提醒。
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** The door on the desktop: always on top, with the clock, tonight's goal and a live camera view. */
+function PipDoor({
+  view,
+  session,
+  coach,
+  phase,
+  remaining,
+  pauseLeft,
+  attach,
+  onEnd,
+}: {
+  view: StudyView;
+  session: ViewSession;
+  coach: CoachEvent | null;
+  phase: Phase;
+  remaining: number;
+  pauseLeft: number;
+  attach: (el: HTMLVideoElement | null) => void;
+  onEnd: () => void;
+}) {
+  const over = phase === "summary",
+    paused = phase === "paused";
+  return (
+    <div className="study pip-door">
+      <div className="pip-status">
+        {over ? (
+          <span>下课了</span>
+        ) : paused ? (
+          <span>暂停中 · 摄像头已关闭</span>
+        ) : (
+          <>
+            <span className="rec-dot" aria-hidden="true" />
+            <span>摄像头开启中</span>
+            <video
+              ref={attach}
+              className="pip-cam"
+              muted
+              playsInline
+              autoPlay
+            />
+            <button onClick={onEnd}>结束本次</button>
+          </>
+        )}
+      </div>
+      <div className="pip-stage">
+        {over ? (
+          <Door view={view} still="pleased" />
+        ) : (
+          <Door view={view} event={paused ? null : coach} />
+        )}
+      </div>
+      <div className="pip-board">
+        {over ? (
+          <p>回到学习页，写三行总结。</p>
+        ) : (
+          <>
+            <b>{clock(paused ? pauseLeft : remaining)}</b>
+            {session.goal && <span>今晚学：{session.goal}</span>}
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 

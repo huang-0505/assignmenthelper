@@ -5395,6 +5395,124 @@ body {
   margin-top: 10px;
 }
 
+/* Putting the door on the desktop, from the running session. */
+.desk-door {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+.desk-door p {
+  flex: 1 1 260px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.desk-door p svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+/* The floating window itself: a strip of wall with the door, and the clock in chalk below. */
+.pip-body {
+  margin: 0;
+  background: var(--paper);
+  overflow: hidden;
+}
+.study.pip-door {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  height: 100vh;
+  padding: 10px 12px 12px;
+  box-sizing: border-box;
+}
+.pip-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 3px 4px 3px 12px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid #f0c6c1;
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--ink);
+}
+.pip-cam {
+  width: 44px;
+  height: 33px;
+  margin-left: auto;
+  border-radius: 6px;
+  object-fit: cover;
+  transform: scaleX(-1);
+  background: #1b2433;
+}
+.pip-status button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: #fbe9e7;
+  color: #a2261d;
+  font-size: 11px;
+  font-weight: 800;
+}
+.pip-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+.pip-stage .door-scene {
+  --door-w: min(150px, 34vh, 54vw);
+}
+.pip-stage .coach-bubble {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  max-width: none;
+}
+.pip-board {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 14px 10px;
+  border: 5px solid var(--board-edge);
+  border-radius: 6px;
+  background: var(--board);
+  color: var(--chalk);
+}
+.pip-board b {
+  font-family: var(--chalk-font);
+  font-size: 38px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.pip-board span {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--chalk-dim);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.pip-board p {
+  margin: 6px 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 /* Study Mode entry on the Today page. */
 .study-card {
   display: grid;
