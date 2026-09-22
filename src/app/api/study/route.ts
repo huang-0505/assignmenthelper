@@ -8,13 +8,17 @@ import {
   getSession,
   getStrike,
   insertStrike,
+  insertVisit,
   jpegBytes,
   loadSessions,
+  markVisitSeen,
   overturnStrike,
   putImage,
   removeImage,
   StudyNotReady,
   updateSession,
+  visitsReady,
+  VisitsNotReady,
   type SessionRecord,
 } from "@/lib/server/study";
 import {
@@ -27,15 +31,17 @@ import {
 } from "@/lib/server/supabase";
 import { visionProvider, type Frame } from "@/lib/server/vision";
 import {
+  COACH_MOOD_LABEL,
   COACH_MOODS,
   DEFAULT_COACH_LINES,
   inspectionAction,
   localKind,
   localReason,
+  minuteChoices,
   studyResult,
+  VISIT_GAP_MS,
   weakSummary,
   withDefaults,
-  type CoachMood,
   type StudyRules,
   type StudyView,
 } from "@/lib/study";
@@ -47,11 +53,6 @@ export const maxDuration = 60;
 const FRAME_BYTES = 400_000,
   PHOTO_BYTES = 1_500_000,
   INSPECT_GAP_MS = 45_000;
-const MOOD_LABEL: Record<CoachMood, string> = {
-  calm: "查岗中",
-  angry: "看到走神",
-  pleased: "一切正常",
-};
 // Graded by the same model chain as interview answers; the rubric describes a useful recap.
 const SUMMARY: Question = {
   id: "study-summary",
@@ -73,8 +74,17 @@ const bodySchema = z.discriminatedUnion("type", [
     ai: z.boolean(),
     screen: z.boolean(),
     share: z.boolean(),
+    goal: z.string().trim().max(80, "这场的目标最多 80 个字").optional(),
+    minutes: z.number().int().optional(),
   }),
   z.object({ type: z.literal("heartbeat"), sessionId }),
+  z.object({
+    type: z.literal("visit"),
+    sessionId,
+    mood: z.enum(COACH_MOODS),
+    line: z.string().trim().min(1, "说一句话再开门").max(120, "最多 120 个字"),
+  }),
+  z.object({ type: z.literal("visitSeen"), sessionId, visitId: z.uuid() }),
   z.object({
     type: z.literal("event"),
     sessionId,
@@ -110,7 +120,11 @@ const bodySchema = z.discriminatedUnion("type", [
   }),
 ]);
 type Body = z.infer<typeof bodySchema>;
-const REFEREE_ONLY = new Set<Body["type"]>(["overturn", "coachPhoto"]);
+const REFEREE_ONLY = new Set<Body["type"]>([
+  "overturn",
+  "coachPhoto",
+  "visit",
+]);
 
 const today = (state: GameState) => Object.keys(state.days).sort().at(-1)!;
 function todayRules(state: GameState): StudyRules {
@@ -136,6 +150,7 @@ function payload(
       photos: state.coach?.photos ?? {},
     },
     ai: provider ? { id: provider.id, label: provider.label } : null,
+    features: { visits: visitsReady() },
     sessions: sessions.map((s) => ({ ...s, result: studyResult(s, now) })),
     serverTime: now,
   };
@@ -192,6 +207,11 @@ export async function POST(request: Request) {
         { error: "请先在 Supabase 执行 002_study.sql 迁移" },
         { status: 503 },
       );
+    if (error instanceof VisitsNotReady)
+      return Response.json(
+        { error: "真人查岗需要先在 Supabase 执行 003_visits.sql 迁移" },
+        { status: 503 },
+      );
     return errorResponse(error);
   }
 }
@@ -207,7 +227,11 @@ async function handle(
       const sessions = await loadSessions(now);
       if (sessions.some((s) => !s.endedAt))
         throw new HttpError("你还有一场学习没有结束", 409);
-      const rules = todayRules(state);
+      const base = todayRules(state);
+      if (body.minutes && !minuteChoices(base).includes(body.minutes))
+        throw new HttpError("这个时长不在可选范围内", 400);
+      // Her chosen length is part of this session's rules; the points and penalty stay the same.
+      const rules = { ...base, minutes: body.minutes ?? base.minutes };
       await createSession({
         id: crypto.randomUUID(),
         day: today(state),
@@ -226,6 +250,7 @@ async function handle(
           screen: body.screen,
         },
         share_snapshots: body.share,
+        goal: body.goal || null,
         summary: null,
         summary_grade: null,
         last_inspect_at: null,
@@ -270,7 +295,7 @@ async function handle(
             at: now,
             actor: "referee",
             action: "coachPhoto",
-            detail: `${body.image ? "更新" : "删除"}了教练照片（${MOOD_LABEL[body.mood]}）`,
+            detail: `${body.image ? "更新" : "删除"}了教练照片（${COACH_MOOD_LABEL[body.mood]}）`,
           });
         }, now),
       );
@@ -285,9 +310,46 @@ async function handle(
     id = session.id;
   if (session.endedAt) throw new HttpError("这次学习已经结束了", 409);
   switch (body.type) {
-    case "heartbeat":
+    case "heartbeat": {
       await updateSession(id, { last_seen_at: now });
+      // The page polls with heartbeats; a visit she has not seen yet rides back on the reply.
+      const visit = session.visits.findLast((v) => !v.seenAt);
+      return visit ? { visit } : {};
+    }
+    case "visitSeen":
+      await markVisitSeen(body.visitId, id, now);
       return {};
+    case "visit": {
+      if (result.status === "paused")
+        throw new HttpError("她暂停了，摄像头关着，等她回来再去", 409);
+      if (result.status !== "active")
+        throw new HttpError("她已经下课了", 409);
+      const last = session.visits.at(-1);
+      if (last && Date.parse(now) - Date.parse(last.at) < VISIT_GAP_MS)
+        throw new HttpError("刚去过，过一会儿再去", 429);
+      const visit = {
+        id: crypto.randomUUID(),
+        session_id: id,
+        at: now,
+        mood: body.mood,
+        line: body.line,
+        seen_at: null,
+      };
+      await insertVisit(visit);
+      setState(
+        await transact((s) => {
+          s.audit.push({
+            id: crypto.randomUUID(),
+            at: now,
+            actor: "referee",
+            action: "studyVisit",
+            date: session.day,
+            detail: `去后门看了她（${COACH_MOOD_LABEL[body.mood]}）：${body.line}`,
+          });
+        }, now),
+      );
+      return { visit: { ...visit, seenAt: null } };
+    }
     case "share":
       await updateSession(id, { share_snapshots: body.share });
       return {};

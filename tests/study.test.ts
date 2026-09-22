@@ -9,6 +9,7 @@ import {
   headPose,
   inspectionAction,
   inspectionDelay,
+  minuteChoices,
   localKind,
   SignalTracker,
   studyOutcome,
@@ -43,7 +44,9 @@ function session(overrides: Partial<StudySession> = {}): StudySession {
     share: false,
     summary: "Learned X.\nPracticed Y.\nNext: Z.",
     summaryGrade: { score: 4, tip: "" },
+    goal: null,
     strikes: [],
+    visits: [],
     ...overrides,
   };
 }
@@ -155,6 +158,10 @@ describe("strike aggregation", () => {
 });
 
 describe("session timing", () => {
+  it("offers three preset lengths plus the referee's default, once each", () => {
+    expect(minuteChoices({ minutes: 30 })).toEqual([25, 30, 50, 90]);
+    expect(minuteChoices({ minutes: 50 })).toEqual([25, 50, 90]);
+  });
   const running = (overrides: Partial<StudySession>) =>
     session({ endedAt: null, endReason: null, ...overrides });
   it("treats a page that stopped reporting mid-session as abandoned", () => {
@@ -251,6 +258,26 @@ describe("settlement", () => {
     );
     applyAction(s, action, "referee", "r", at(2), bank);
     expect(s.coach?.lines?.angry).toBe("抓到了！");
+  });
+  it("lets the referee leave one line for her, and clear it", () => {
+    const s = newGame(at(1), bank);
+    const note = (text: string) => ({
+      type: "coachNote" as const,
+      id: crypto.randomUUID(),
+      text,
+    });
+    expect(() =>
+      applyAction(s, note("加油"), "player", "p", at(2), bank),
+    ).toThrow("权限");
+    applyAction(s, note("今天的 SQL 题偏难，写清楚思路就行"), "referee", "r", at(2), bank);
+    expect(s.coach?.note).toEqual({
+      text: "今天的 SQL 题偏难，写清楚思路就行",
+      at: at(2),
+    });
+    expect(s.audit.at(-1)?.detail).toBe("给她留言：今天的 SQL 题偏难，写清楚思路就行");
+    applyAction(s, note(""), "referee", "r", at(3), bank);
+    expect(s.coach?.note).toBeUndefined();
+    expect(s.audit.at(-1)?.detail).toBe("清除了留言");
   });
 });
 

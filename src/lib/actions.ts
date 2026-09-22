@@ -144,6 +144,12 @@ export const actionSchema = z.discriminatedUnion("type", [
     type: z.literal("coachLines"),
     lines: z.object({ calm: coachLine, angry: coachLine, pleased: coachLine }),
   }),
+  z.object({
+    id,
+    type: z.literal("coachNote"),
+    /** Empty clears the note. */
+    text: z.string().trim().max(120, "留言最多 120 个字"),
+  }),
 ]);
 export type Action = z.infer<typeof actionSchema>;
 
@@ -175,6 +181,7 @@ export function applyAction(
     "redeem",
     "playerName",
     "coachLines",
+    "coachNote",
   ].includes(action.type);
   if (refereeAction !== (role === "referee"))
     throw new Error("你的角色没有这项操作的权限");
@@ -304,6 +311,12 @@ export function applyAction(
     case "coachLines":
       state.coach = { ...state.coach, lines: action.lines };
       break;
+    case "coachNote":
+      state.coach = {
+        ...state.coach,
+        note: action.text ? { text: action.text, at: now } : undefined,
+      };
+      break;
   }
   state.audit.push({
     id: action.id,
@@ -324,7 +337,11 @@ export function applyAction(
                 ? `看剧 ${action.count} 集`
                 : action.type === "coachLines"
                   ? "修改了学习模式教练台词"
-                  : "已保存",
+                  : action.type === "coachNote"
+                    ? action.text
+                      ? `给她留言：${action.text}`
+                      : "清除了留言"
+                    : "已保存",
   });
 }
 

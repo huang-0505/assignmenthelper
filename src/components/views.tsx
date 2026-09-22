@@ -12,6 +12,7 @@ import {
   FolderOpen,
   Gift,
   LockKeyhole,
+  MessageSquareText,
   Pencil,
   Plus,
   ShieldCheck,
@@ -795,6 +796,7 @@ export function Referee() {
   return (
     <>
       <PageTitle title="做她最靠谱的加油官" subtitle="裁判工作台" />
+      <NotePanel />
       <div className="referee-summary">
         <div>
           <span className="task-icon lavender">
@@ -969,8 +971,68 @@ const REFEREE_ACTIONS = [
   "playerName",
   "coachLines",
   "coachPhoto",
+  "coachNote",
   "studyOverturn",
+  "studyVisit",
 ];
+/** The referee's one line for her Today page, written beside the face she will see it with. */
+function NotePanel() {
+  const { snapshot, act, busy } = useGame(),
+    note = snapshot.state.coach?.note ?? null,
+    version = snapshot.state.coach?.photos?.calm;
+  const [text, setText] = useState(note?.text ?? "");
+  return (
+    <section className="white-panel note-panel">
+      <DoorWindow
+        src={version ? `/api/study/media?coach=calm&v=${version}` : null}
+        mood="calm"
+        size="sm"
+      />
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          await act({ type: "coachNote", text });
+        }}
+      >
+        <label htmlFor="coach-note">
+          给她留一句话
+          <small>
+            显示在她今日页面的最上面，用的是「查岗中」这张脸。改掉或清除之前一直在。
+          </small>
+        </label>
+        <div className="note-row">
+          <input
+            id="coach-note"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={120}
+            placeholder="例如：今天的 SQL 题偏难，写清楚思路就行"
+          />
+          <button className="button primary" disabled={busy || !text.trim()}>
+            <MessageSquareText size={17} /> 放到她的页面
+          </button>
+          {note && (
+            <button
+              type="button"
+              className="text-button"
+              disabled={busy}
+              onClick={async () => {
+                if (await act({ type: "coachNote", text: "" })) setText("");
+              }}
+            >
+              清除
+            </button>
+          )}
+        </div>
+        {note && (
+          <p className="muted small">
+            她现在看到的：“{note.text}” · {nyTime(note.at)}
+          </p>
+        )}
+      </form>
+    </section>
+  );
+}
 const nyTime = (at: string) =>
   new Date(at).toLocaleString("zh-CN", {
     timeZone: "America/New_York",

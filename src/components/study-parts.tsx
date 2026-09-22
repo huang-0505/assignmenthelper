@@ -1,8 +1,9 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download } from "lucide-react";
 import { toast } from "sonner";
 import {
+  COACH_MOODS,
   KIND_LABEL,
   SOURCE_LABEL,
   type CoachMood,
@@ -16,7 +17,11 @@ export type CoachEvent = {
   mood: CoachMood;
   tag?: string;
   detail?: string;
+  /** Overrides the mood's saved line, e.g. what the referee typed for a live visit. */
+  line?: string;
   inspecting?: boolean;
+  /** The referee is at the door in person: the door always swings open. */
+  visit?: boolean;
 };
 
 export function coachSrc(view: StudyView, mood: CoachMood) {
@@ -24,7 +29,16 @@ export function coachSrc(view: StudyView, mood: CoachMood) {
   return version ? `/api/study/media?coach=${mood}&v=${version}` : null;
 }
 
-/** The classroom back-door window the coach peeks through. */
+function Silhouette({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 80 96" aria-hidden="true" className={className}>
+      <circle cx="40" cy="38" r="17" />
+      <path d="M8 96c2-22 15-33 32-33s30 11 32 33z" />
+    </svg>
+  );
+}
+
+/** The framed photo: settings slots, the poster and the referee's face picker. */
 export function DoorWindow({
   src,
   mood,
@@ -41,47 +55,121 @@ export function DoorWindow({
           // eslint-disable-next-line @next/next/no-img-element -- private, same-origin media route
           <img src={src} alt="" />
         ) : (
-          <svg
-            viewBox="0 0 80 96"
-            aria-hidden="true"
-            className="door-silhouette"
-          >
-            <circle cx="40" cy="38" r="17" />
-            <path d="M8 96c2-22 15-33 32-33s30 11 32 33z" />
-          </svg>
+          <Silhouette className="door-silhouette" />
         )}
       </div>
     </div>
   );
 }
 
-export function CoachOverlay({
+export type DoorStage =
+  | "idle"
+  | "approach"
+  | "peek"
+  | "window"
+  | "wide"
+  | "closing";
+/**
+ * Where the door settles for an event: an inspection peeks around it, good news is seen through
+ * its window with the door shut again, and a caught lapse or the referee in person swings it open.
+ */
+function stageFor(event: CoachEvent): DoorStage {
+  if (event.visit) return "wide";
+  if (event.inspecting || event.mood === "calm") return "peek";
+  return event.mood === "pleased" ? "window" : "wide";
+}
+const APPROACH_MS = 700,
+  CLOSE_MS = 700;
+
+/**
+ * The classroom back door. Hinged on the left, it swings away into the corridor, so the coach
+ * appears in the gap on the right; shut, she is seen through the small window. `still` shows a
+ * face in the window with nothing happening, for the pages that only introduce the coach.
+ */
+export function Door({
   view,
-  event,
+  event = null,
+  still,
 }: {
   view: StudyView;
-  event: CoachEvent | null;
+  event?: CoachEvent | null;
+  still?: CoachMood;
 }) {
+  const [stage, setStage] = useState<DoorStage>(still ? "window" : "idle"),
+    [shown, setShown] = useState<CoachEvent | null>(null),
+    [seen, setSeen] = useState<CoachEvent | null>(null);
+  // A new event moves the door at once; someone walks up to the window first unless it is open.
+  if (!still && event !== seen) {
+    setSeen(event);
+    if (event) {
+      setShown(event);
+      setStage(
+        stage === "idle" || stage === "closing" ? "approach" : stageFor(event),
+      );
+    } else if (stage !== "idle") setStage("closing");
+  }
+  // The timed steps: the approach settles into the event's stage, and closing ends idle.
+  useEffect(() => {
+    if (stage === "approach" && event) {
+      const timer = setTimeout(() => setStage(stageFor(event)), APPROACH_MS);
+      return () => clearTimeout(timer);
+    }
+    if (stage === "closing") {
+      const timer = setTimeout(() => {
+        setStage("idle");
+        setShown(null);
+      }, CLOSE_MS);
+      return () => clearTimeout(timer);
+    }
+  }, [stage, event]);
+  const mood = still ?? shown?.mood ?? "calm";
   return (
-    <div
-      className={`coach-overlay ${event ? `in ${event.mood}` : ""}`}
-      role="status"
-      aria-live="polite"
-    >
-      {event && (
-        <>
-          <DoorWindow src={coachSrc(view, event.mood)} mood={event.mood} />
-          <div className="coach-bubble">
-            {event.tag && <span className="coach-tag">{event.tag}</span>}
-            <strong>{view.coach.lines[event.mood]}</strong>
-            {event.detail && <p>{event.detail}</p>}
-            {event.inspecting && (
-              <span className="coach-checking">
-                <i /> 查岗中
-              </span>
-            )}
+    <div className={`door-scene ${stage} ${mood}`}>
+      <div className="door-frame">
+        <div className="door-opening">
+          <div className="door-coach">
+            {COACH_MOODS.map((m) => {
+              const src = coachSrc(view, m);
+              const on = m === mood ? "on" : "";
+              return src ? (
+                // eslint-disable-next-line @next/next/no-img-element -- private, same-origin media route
+                <img key={m} src={src} alt="" className={on} />
+              ) : (
+                <Silhouette key={m} className={`door-silhouette ${on}`} />
+              );
+            })}
           </div>
-        </>
+        </div>
+        <div className="door-leaf">
+          <span className="door-wood">
+            <i className="door-panel" />
+          </span>
+          <span className="door-mid">
+            <i className="door-wood" />
+            <span className="door-glass">
+              <span className="door-shadow">
+                <Silhouette />
+              </span>
+            </span>
+            <i className="door-wood" />
+          </span>
+          <span className="door-wood">
+            <i className="door-panel" />
+          </span>
+          <i className="door-knob" />
+        </div>
+      </div>
+      {shown && !still && (
+        <div className="coach-bubble" role="status" aria-live="polite">
+          {shown.tag && <span className="coach-tag">{shown.tag}</span>}
+          <strong>{shown.line ?? view.coach.lines[shown.mood]}</strong>
+          {shown.detail && <p>{shown.detail}</p>}
+          {shown.inspecting && (
+            <span className="coach-checking">
+              <i /> 查岗中
+            </span>
+          )}
+        </div>
       )}
     </div>
   );
@@ -195,6 +283,12 @@ export function Poster({
           <DoorWindow src={coachSrc(view, mood)} mood={mood} size="lg" />
           <p>“{view.coach.lines[mood]}”</p>
         </div>
+        {session.goal && (
+          <p className="poster-goal">
+            <b>这场学的</b>
+            {session.goal}
+          </p>
+        )}
         <dl className="poster-stats">
           <div>
             <dt>学习时长</dt>
@@ -216,8 +310,17 @@ export function Poster({
             </dd>
           </div>
           <div>
-            <dt>提醒</dt>
-            <dd>{r.warnings}</dd>
+            <dt>{session.visits.length ? "裁判来过" : "提醒"}</dt>
+            <dd>
+              {session.visits.length ? (
+                <>
+                  {session.visits.length}
+                  <small> 次</small>
+                </>
+              ) : (
+                r.warnings
+              )}
+            </dd>
           </div>
         </dl>
         {counted.length > 0 && (

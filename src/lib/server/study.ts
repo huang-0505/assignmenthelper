@@ -2,6 +2,7 @@ import "server-only";
 import {
   studyOutcome,
   studyResult,
+  type CoachMood,
   type EndReason,
   type StrikeKind,
   type StrikeSource,
@@ -14,6 +15,8 @@ import { adminClient } from "./supabase";
 // Snapshots and coach photos share one private bucket; only the server's service role can read it.
 const BUCKET = "study-media";
 export class StudyNotReady extends Error {}
+/** Thrown when a live visit is attempted before 003_visits.sql has run. */
+export class VisitsNotReady extends Error {}
 
 type StrikeRow = {
   id: string;
@@ -26,6 +29,14 @@ type StrikeRow = {
   snapshot_path: string | null;
   overturned_at: string | null;
   overturn_reason: string | null;
+};
+type VisitRow = {
+  id: string;
+  session_id: string;
+  at: string;
+  mood: CoachMood;
+  line: string;
+  seen_at: string | null;
 };
 type SessionRow = {
   id: string;
@@ -41,10 +52,12 @@ type SessionRow = {
   rules: StudyRules;
   layers: { ai: boolean; screen: boolean };
   share_snapshots: boolean;
+  goal?: string | null;
   summary: string | null;
   summary_grade: { score: number | null; tip: string } | null;
   last_inspect_at: string | null;
   study_strikes: StrikeRow[];
+  study_visits?: VisitRow[];
 };
 export type SessionRecord = StudySession & { lastInspectAt: string | null };
 
@@ -64,6 +77,7 @@ function toSession(row: SessionRow): SessionRecord {
     rules: row.rules,
     layers: row.layers,
     share: row.share_snapshots,
+    goal: row.goal ?? null,
     summary: row.summary,
     summaryGrade: row.summary_grade,
     lastInspectAt: iso(row.last_inspect_at),
@@ -80,6 +94,15 @@ function toSession(row: SessionRow): SessionRecord {
         overturnedAt: iso(s.overturned_at),
         overturnReason: s.overturn_reason,
       })),
+    visits: [...(row.study_visits ?? [])]
+      .sort((a, b) => a.at.localeCompare(b.at))
+      .map((v) => ({
+        id: v.id,
+        at: iso(v.at)!,
+        mood: v.mood,
+        line: v.line,
+        seenAt: iso(v.seen_at),
+      })),
   };
 }
 function fail(error: { code?: string } | null, message: string): never {
@@ -89,30 +112,66 @@ function fail(error: { code?: string } | null, message: string): never {
   throw new Error(message);
 }
 
+// Until 003_visits.sql runs there is no goal column and no visits table. The store notices from
+// PostgREST's errors and carries on without them, checking again a few minutes later.
+let legacyUntil = 0;
+const legacy = () => Date.now() < legacyUntil;
+const noteLegacy = () => {
+  legacyUntil = Date.now() + 5 * 60_000;
+};
+type DbError = { code?: string } | null;
+const missingVisits = (error: DbError) => error?.code === "PGRST200";
+const missingGoal = (error: DbError) =>
+  error?.code === "PGRST204" || error?.code === "42703";
+export const visitsReady = () => !legacy();
+const columns = () =>
+  legacy()
+    ? "*, study_strikes(*)"
+    : "*, study_strikes(*), study_visits(*)";
+
 const table = () => adminClient().from("study_sessions");
+type Result = { data: unknown; error: DbError };
+async function selectSessions(
+  build: (cols: string) => PromiseLike<Result>,
+): Promise<Result> {
+  let result = await build(columns());
+  if (result.error && !legacy() && missingVisits(result.error)) {
+    noteLegacy();
+    result = await build(columns());
+  }
+  return result;
+}
 export async function listSessions(): Promise<SessionRecord[]> {
-  const { data, error } = await table()
-    .select("*, study_strikes(*)")
-    .order("started_at", { ascending: false });
+  const { data, error } = await selectSessions((cols) =>
+    table().select(cols).order("started_at", { ascending: false }),
+  );
   if (error) fail(error, "无法读取学习记录");
   return (data as SessionRow[]).map(toSession);
 }
 export async function getSession(id: string) {
-  const { data, error } = await table()
-    .select("*, study_strikes(*)")
-    .eq("id", id)
-    .maybeSingle();
+  const { data, error } = await selectSessions((cols) =>
+    table().select(cols).eq("id", id).maybeSingle(),
+  );
   if (error) fail(error, "无法读取这次学习");
   return data ? toSession(data as SessionRow) : null;
 }
-export async function createSession(row: Omit<SessionRow, "study_strikes">) {
-  const { error } = await table().insert(row);
+export async function createSession(
+  row: Omit<SessionRow, "study_strikes" | "study_visits">,
+) {
+  // An undefined goal is left out of the request, so the column need not exist yet.
+  const insert = (withGoal: boolean) =>
+    table().insert(withGoal ? row : { ...row, goal: undefined });
+  let { error } = await insert(!legacy());
+  if (error && !legacy() && missingGoal(error)) {
+    noteLegacy();
+    ({ error } = await insert(false));
+  }
   if (error?.code === "23505") throw new Error("你还有一场学习没有结束");
   if (error) fail(error, "无法开始学习，请重试");
 }
 export async function updateSession(
   id: string,
-  patch: Partial<Omit<SessionRow, "id" | "study_strikes">>,
+  patch: Partial<Omit<SessionRow, "id" | "study_strikes" | "study_visits">>,
 ) {
   const { error } = await table().update(patch).eq("id", id);
   if (error) fail(error, "学习记录保存失败，请重试");
@@ -138,6 +197,26 @@ export async function overturnStrike(id: string, reason: string, at: string) {
     .eq("id", id)
     .is("overturned_at", null);
   if (error) fail(error, "推翻失败，请重试");
+}
+export async function insertVisit(row: VisitRow) {
+  if (legacy()) throw new VisitsNotReady();
+  const { error } = await adminClient().from("study_visits").insert(row);
+  if (error && missingVisits(error)) {
+    noteLegacy();
+    throw new VisitsNotReady();
+  }
+  if (error) fail(error, "没能开门，请重试");
+}
+/** She saw the door open; the referee's page shows it. */
+export async function markVisitSeen(id: string, sessionId: string, at: string) {
+  if (legacy()) return;
+  const { error } = await adminClient()
+    .from("study_visits")
+    .update({ seen_at: at })
+    .eq("id", id)
+    .eq("session_id", sessionId)
+    .is("seen_at", null);
+  if (error && !missingVisits(error)) fail(error, "记录保存失败");
 }
 export async function clearSnapshots() {
   const db = adminClient();

@@ -4684,25 +4684,192 @@ body {
     opacity: 0;
   }
 }
-.coach-overlay {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 70;
+/* The classroom back door. Hinged on the left, it swings away into the corridor, so the coach
+   appears in the gap on the right; shut, she is seen through the small window. The stage classes
+   (approach, peek, window, wide, closing) only move --swing and --face; everything else follows. */
+.door-scene {
+  --door-w: 176px;
+  --jamb: calc(var(--door-w) * 0.06);
+  --swing: 0deg;
+  --face: 50%;
   display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  max-width: min(460px, calc(100vw - 32px));
-  transform: translateX(calc(100% + 40px));
-  transition: transform 420ms var(--ease-out);
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.door-frame {
+  position: relative;
+  width: var(--door-w);
+  aspect-ratio: 1 / 1.9;
+  background: linear-gradient(180deg, #7d5533, #5a3b21);
+  border-radius: 5px 5px 2px 2px;
+  box-shadow:
+    0 14px 30px rgba(59, 38, 17, 0.25),
+    inset 0 0 0 2px rgba(0, 0, 0, 0.16);
+  perspective: 640px;
+  perspective-origin: 50% 42%;
+  flex-shrink: 0;
+}
+.door-opening {
+  position: absolute;
+  inset: var(--jamb) var(--jamb) 0;
+  overflow: hidden;
+  background: linear-gradient(180deg, #52413a, #7b6757 55%, #3e3129);
+}
+/* Corridor light falls in from the right, and the open leaf throws its shadow from the left. */
+.door-opening::before,
+.door-opening::after {
+  content: "";
+  position: absolute;
+  inset: 0;
   pointer-events: none;
 }
-.coach-overlay.in {
-  transform: none;
-  pointer-events: auto;
+.door-opening::before {
+  background: radial-gradient(
+    90% 60% at 100% 30%,
+    rgba(255, 232, 190, 0.38),
+    transparent 70%
+  );
 }
-.coach-overlay.in.angry {
-  animation: knock 420ms 420ms var(--ease-out);
+.door-opening::after {
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.6), transparent 55%);
+  opacity: 0;
+  transition: opacity 600ms var(--ease-out);
+}
+.door-scene.peek .door-opening::after,
+.door-scene.wide .door-opening::after {
+  opacity: 1;
+}
+/* The photo is head-and-shoulders high, so a whole face fits the gap; --face is where its centre sits. */
+.door-coach {
+  position: absolute;
+  top: 2%;
+  height: 75%;
+  aspect-ratio: 3 / 4;
+  left: calc(var(--face) - 53.5%);
+  opacity: 0;
+  transition:
+    left 700ms var(--ease-out),
+    opacity 400ms;
+}
+.door-scene.peek .door-coach,
+.door-scene.window .door-coach,
+.door-scene.wide .door-coach {
+  opacity: 1;
+}
+.door-coach img,
+.door-coach .door-silhouette {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 300ms;
+}
+.door-coach .door-silhouette {
+  inset: 14% 10% 0;
+  width: 80%;
+  height: 86%;
+  fill: #9aa7b1;
+  opacity: 0;
+}
+.door-coach .on {
+  opacity: 1;
+}
+/* Seen through the window, the photo shrinks so the whole face fits the pane. */
+.door-scene.window .door-coach {
+  top: 11%;
+  height: 48%;
+  left: calc(var(--face) - 34%);
+}
+.door-scene.peek {
+  --swing: 38deg;
+  --face: 84%;
+}
+.door-scene.wide {
+  --swing: 62deg;
+  --face: 72%;
+}
+.door-leaf {
+  position: absolute;
+  inset: var(--jamb) var(--jamb) 0;
+  display: grid;
+  grid-template-rows: 17% 32% 1fr;
+  transform-origin: 0 50%;
+  transform: rotateY(var(--swing));
+  transition: transform 700ms var(--ease-out);
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.14);
+}
+.door-wood {
+  display: block;
+  background: #a3713f
+    repeating-linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.07) 0 2px,
+      transparent 2px 9px
+    );
+}
+.door-leaf > .door-wood {
+  padding: 10% 14%;
+}
+.door-panel {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  box-shadow:
+    inset 2px 2px 4px rgba(0, 0, 0, 0.3),
+    inset -2px -2px 3px rgba(255, 255, 255, 0.14);
+}
+.door-mid {
+  display: grid;
+  grid-template-columns: 18% minmax(0, 1fr) 18%;
+}
+.door-leaf .door-glass {
+  position: relative;
+  height: auto;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(214, 231, 241, 0.26);
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.3);
+}
+.door-shadow {
+  position: absolute;
+  inset: 12% 10% 0;
+  opacity: 0;
+  transition: opacity 200ms;
+}
+.door-shadow svg {
+  width: 100%;
+  height: 100%;
+  fill: #2b2622;
+  filter: blur(2px);
+}
+.door-scene.approach .door-shadow {
+  animation: approach 700ms var(--ease-out) forwards;
+}
+@keyframes approach {
+  from {
+    transform: translateY(30%) scale(0.5);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 0.8;
+  }
+}
+.door-knob {
+  position: absolute;
+  right: 8%;
+  top: 52%;
+  width: 9%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #ffe9a8, #b8862f 60%, #6d4a10);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+.door-scene.wide.angry .door-frame {
+  animation: knock 420ms 700ms var(--ease-out);
 }
 @keyframes knock {
   25% {
@@ -4721,18 +4888,25 @@ body {
   flex-direction: column;
   gap: 6px;
   min-width: 0;
-  padding: 14px 16px;
-  margin-bottom: 26px;
+  max-width: 250px;
+  padding: 12px 14px;
   border-radius: 14px;
   background: #fff;
   box-shadow: 0 14px 34px rgba(34, 48, 76, 0.2);
-  order: -1;
+  animation: bubble-in 240ms var(--ease-out);
+}
+@keyframes bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 .coach-bubble::after {
   content: "";
   position: absolute;
-  right: -7px;
-  bottom: 18px;
+  top: -7px;
+  left: 50%;
+  margin-left: -7px;
   width: 14px;
   height: 14px;
   background: #fff;
@@ -4755,9 +4929,13 @@ body {
   background: #eaf0ff;
   color: var(--blue);
 }
-.coach-overlay.angry .coach-tag {
+.door-scene.angry .coach-tag {
   background: #fdecea;
   color: #a2261d;
+}
+.door-scene.pleased .coach-tag {
+  background: #e6f4ef;
+  color: var(--green);
 }
 .coach-checking {
   display: inline-flex;
@@ -4859,6 +5037,235 @@ body {
 }
 .poster-modal {
   width: min(460px, calc(100vw - 24px));
+}
+/* Her goal for the session, in chalk under the clock. */
+.board-goal {
+  margin: -4px 0 12px;
+  font-family: var(--chalk-font);
+  font-size: 24px;
+  line-height: 1.25;
+  color: var(--chalk);
+  opacity: 0.9;
+}
+.poster-goal,
+.session-goal {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.poster-goal {
+  margin: -6px 0 14px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(234, 240, 255, 0.7);
+}
+.poster-goal b,
+.session-goal b {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+.session-goal {
+  margin-top: 8px;
+}
+/* Before she starts: what for, and how long. */
+.goal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  font-size: 13px;
+  font-weight: 750;
+}
+.goal-field small {
+  margin-left: 6px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.goal-field input {
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.minute-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.minute-picker button {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1.5px solid #cbd3e2;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--muted);
+}
+.minute-picker button.on {
+  border-color: var(--blue);
+  background: var(--blue-light);
+  color: var(--blue);
+}
+/* The self-view stays small unless she wants it: watching yourself for half an hour is tiring. */
+.hud-camera.compact {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: center;
+}
+.hud-camera.compact .camera-preview,
+.hud-camera.compact .camera-off {
+  border-radius: 10px;
+  font-size: 12px;
+}
+.hud-camera.compact .camera-off svg {
+  width: 20px;
+  height: 20px;
+}
+.hud-signals {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+/* The referee's side of the door. */
+.live-visit {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.live-visit-head p {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.mood-picker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.mood-picker button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 6px 10px;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  background: #f4f6fb;
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--muted);
+}
+.mood-picker button[aria-checked="true"] {
+  border-color: var(--blue);
+  background: var(--blue-light);
+  color: var(--ink);
+}
+.live-visit form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.live-visit input {
+  flex: 1 1 240px;
+  min-height: 46px;
+  font-size: 14px;
+}
+.visit-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.visit-log time {
+  margin-right: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.visit-log em {
+  margin-left: 6px;
+  font-style: normal;
+  color: var(--green);
+}
+.visit-log em.pending {
+  color: var(--amber);
+}
+
+/* The referee's line on her Today page: the coach's face, speaking. */
+.hero-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 2px 0 20px;
+}
+.hero-note .door-window {
+  --size: 54px;
+  margin-top: 4px;
+}
+.hero-note > div {
+  position: relative;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(34, 48, 76, 0.08);
+}
+.hero-note > div::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 18px;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  transform: rotate(45deg);
+}
+.hero-note p {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+.hero-note small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.note-panel {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 24px;
+}
+.note-panel .door-window {
+  --size: 54px;
+}
+.note-panel label {
+  display: block;
+  font-size: 15px;
+  font-weight: 800;
+}
+.note-panel label small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.note-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.note-row input {
+  flex: 1 1 260px;
+  min-height: 46px;
+  font-size: 14px;
+}
+.note-panel .small {
+  margin-top: 10px;
 }
 
 /* Study Mode entry on the Today page. */
@@ -4989,12 +5396,22 @@ body {
     left: 12px;
     justify-content: space-between;
   }
-  .coach-overlay {
-    right: 12px;
-    bottom: 84px;
+  .hero-door .door-scene {
+    --door-w: 96px;
+    flex-direction: row;
+    align-items: flex-start;
   }
-  .coach-overlay .door-window {
-    --size: 90px;
+  .hero-door .coach-bubble {
+    max-width: none;
+    margin-top: 6px;
+  }
+  .hero-door .coach-bubble::after {
+    top: 18px;
+    left: -7px;
+    margin: 0;
+  }
+  .hud-camera.compact {
+    grid-template-columns: 112px minmax(0, 1fr);
   }
   .session-list summary {
     grid-template-columns: 62px minmax(0, 1fr);
@@ -5017,15 +5434,14 @@ body {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .coach-overlay {
-    transition: opacity 180ms linear;
-    transform: none;
-    opacity: 0;
+  .door-leaf,
+  .door-coach,
+  .door-opening::after {
+    transition: none;
   }
-  .coach-overlay.in {
-    opacity: 1;
-  }
-  .coach-overlay.in.angry,
+  .door-scene.approach .door-shadow,
+  .door-scene.wide.angry .door-frame,
+  .coach-bubble,
   .study-stamp.big,
   .coach-checking i {
     animation: none;

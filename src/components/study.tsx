@@ -13,8 +13,11 @@ import { toast } from "sonner";
 import {
   Camera,
   Check,
+  DoorOpen,
   Eye,
   LoaderCircle,
+  Maximize2,
+  Minimize2,
   Monitor,
   Pause,
   Play,
@@ -25,19 +28,25 @@ import {
 } from "lucide-react";
 import {
   calibrate,
+  COACH_MOOD_LABEL,
+  COACH_MOODS,
   inspectionDelay,
   duration,
   KIND_LABEL,
   localKind,
   localReason,
+  minuteChoices,
   SAMPLE_MS,
   SignalTracker,
   SOURCE_LABEL,
+  VISIT_GAP_MS,
+  type CoachMood,
   type LocalSource,
   type Pose,
   type Sample,
   type StudyRules,
   type StudyView,
+  type StudyVisit,
   withDefaults,
 } from "@/lib/study";
 import {
@@ -46,11 +55,12 @@ import {
   ticker,
   type Detector,
 } from "@/lib/study-detector";
+import { knock, primeKnock } from "@/lib/sound";
 import { useGame } from "./provider";
 import { Modal } from "./ui";
 import {
-  CoachOverlay,
   coachSrc,
+  Door,
   DoorWindow,
   nyTime,
   Poster,
@@ -70,6 +80,8 @@ type Reply = StudyView & {
   inspection?: Inspection;
   grade?: { score: number | null; tip: string };
   deleted?: number;
+  /** A live visit from the referee she has not seen yet, riding on a heartbeat reply. */
+  visit?: StudyVisit;
 };
 type Post = (body: object, quiet?: boolean) => Promise<Reply | null>;
 
@@ -79,7 +91,15 @@ const KEYS = {
   screen: "offer-quest-study-screen",
   share: "offer-quest-study-share",
   baseline: "offer-quest-study-baseline",
+  knock: "offer-quest-study-knock",
+  selfView: "offer-quest-study-selfview",
 };
+// The tab title says when the coach is at the door, for the moments the page is behind her notes.
+let pageTitle = "";
+function flashTitle(text: string | null) {
+  pageTitle ||= document.title;
+  document.title = text ? `${text} · ${pageTitle}` : pageTitle;
+}
 const saved = (key: string) => {
   try {
     return localStorage.getItem(key);
@@ -192,7 +212,7 @@ export function Study() {
           </p>
         </div>
       ) : snapshot.role === "referee" ? (
-        <RefereeStudy view={data} post={post} />
+        <RefereeStudy view={data} post={post} now={now} reload={load} />
       ) : (
         <PlayerStudy view={data} post={post} now={now} reload={load} />
       )}
@@ -241,7 +261,11 @@ function PlayerStudy({
     [consentOpen, setConsentOpen] = useState(false),
     [wantAi, setWantAi] = useState(() => saved(KEYS.ai) !== "0"),
     [wantScreen, setWantScreen] = useState(() => saved(KEYS.screen) === "1"),
-    [share, setShare] = useState(() => saved(KEYS.share) === "1");
+    [share, setShare] = useState(() => saved(KEYS.share) === "1"),
+    [knockOn, setKnockOn] = useState(() => saved(KEYS.knock) === "1"),
+    [bigCam, setBigCam] = useState(() => saved(KEYS.selfView) === "big"),
+    [goal, setGoal] = useState(""),
+    [minutes, setMinutes] = useState(view.rules.minutes);
   const aiOn = Boolean(view.ai) && wantAi && consent === "yes";
   const [baseline, setBaseline] = useState<Pose | null>(() => {
     try {
@@ -268,11 +292,29 @@ function PlayerStudy({
     detector = useRef<Detector | null>(null),
     tracker = useRef<SignalTracker | null>(null),
     coachTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined),
-    startAfterConsent = useRef(false);
+    startAfterConsent = useRef(false),
+    seenVisits = useRef(new Set<string>()),
+    visitUntil = useRef(0);
   // Timers read the latest values through refs so they never restart mid-session.
-  const latest = useRef({ session, share, cameraLost, aiDown, live, post });
+  const latest = useRef({
+    session,
+    share,
+    cameraLost,
+    aiDown,
+    live,
+    post,
+    knockOn,
+  });
   useEffect(() => {
-    latest.current = { session, share, cameraLost, aiDown, live, post };
+    latest.current = {
+      session,
+      share,
+      cameraLost,
+      aiDown,
+      live,
+      post,
+      knockOn,
+    };
   });
 
   const attach = useCallback((el: HTMLVideoElement | null) => {
@@ -295,6 +337,7 @@ function PlayerStudy({
     setScreenOn(false);
     clearTimeout(coachTimer.current);
     setCoach(null);
+    flashTitle(null);
   }, [stopCamera]);
   useEffect(() => stopAll, [stopAll]);
 
@@ -339,9 +382,29 @@ function PlayerStudy({
     }
   }
   function showCoach(event: Omit<CoachEvent, "id">, ms = 6500) {
+    // The referee in person keeps the door; an automatic check meanwhile is still recorded below.
+    if (!event.visit && Date.now() < visitUntil.current) return;
     clearTimeout(coachTimer.current);
     setCoach({ ...event, id: Date.now() });
-    if (ms) coachTimer.current = setTimeout(() => setCoach(null), ms);
+    if (event.visit) visitUntil.current = Date.now() + ms;
+    flashTitle(event.mood === "angry" ? "👀 教练在后门" : "🚪 教练来了");
+    if (ms)
+      coachTimer.current = setTimeout(() => {
+        setCoach(null);
+        flashTitle(null);
+      }, ms);
+  }
+  // The referee opened the door in person: it stays open longer, and the referee learns she saw it.
+  function arrive(visit: StudyVisit) {
+    const { session: s, post: send, knockOn: sound } = latest.current;
+    if (!s || seenVisits.current.has(visit.id)) return;
+    seenVisits.current.add(visit.id);
+    showCoach(
+      { mood: visit.mood, line: visit.line, tag: "裁判来了", visit: true },
+      10_000,
+    );
+    if (sound) knock();
+    void send({ type: "visitSeen", sessionId: s.id, visitId: visit.id }, true);
   }
 
   function begin() {
@@ -382,11 +445,15 @@ function PlayerStudy({
     setPhase("ready");
   }
   async function start() {
+    // Audio may only start from a click; this is the click.
+    if (knockOn) primeKnock();
     const reply = await post({
       type: "start",
       ai: aiOn,
       screen: aiOn && screenOn,
       share,
+      goal: goal.trim() || undefined,
+      minutes,
     });
     const s = reply?.sessions.find((x) => !x.endedAt);
     if (!s) return;
@@ -551,13 +618,18 @@ function PlayerStudy({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- report reads refs; restarting would reset timing
   }, [phase]);
-  // Heartbeat, so the server can tell a closed page from a running one.
+  // Heartbeat, so the server can tell a closed page from a running one. While she studies it also
+  // brings back the referee's live visits, so it runs often enough for the door to open promptly.
   useEffect(() => {
     if ((phase !== "running" && phase !== "paused") || !sessionId) return;
-    return ticker(
-      30_000,
-      () => void latest.current.post({ type: "heartbeat", sessionId }, true),
-    );
+    return ticker(phase === "running" ? 8_000 : 30_000, async () => {
+      const reply = await latest.current.post(
+        { type: "heartbeat", sessionId },
+        true,
+      );
+      if (reply?.visit && phase === "running") arrive(reply.visit);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- arrive reads refs; restarting would skip beats
   }, [phase, sessionId]);
   // Coach inspections at random, unannounced moments.
   useEffect(() => {
@@ -670,6 +742,12 @@ function PlayerStudy({
               onChange={(v) => void toggleShare(v)}
               label="违规截图给裁判看"
               note="被记提醒或违规时，上传一张缩小的摄像头截图，只有你和裁判能看。可以随时全部删除。"
+            />
+            <Switch
+              checked={knockOn}
+              onChange={(v) => setting(KEYS.knock, v, setKnockOn)}
+              label="敲门声"
+              note="教练来后门时敲两下，戴着耳机也能听见。"
             />
           </Intro>
           <SessionList view={view} onPoster={setPosterId} />
@@ -802,8 +880,36 @@ function PlayerStudy({
                 <h2>
                   <Check size={20} /> 校准完成
                 </h2>
+                <label className="goal-field">
+                  <span>
+                    这场学什么<small>可选，写给自己和裁判看</small>
+                  </span>
+                  <input
+                    value={goal}
+                    onChange={(e) => setGoal(e.target.value)}
+                    maxLength={80}
+                    placeholder="例如：SQL 窗口函数，或者复盘上周的 ML 题"
+                  />
+                </label>
+                <div
+                  className="minute-picker"
+                  role="radiogroup"
+                  aria-label="学习时长"
+                >
+                  {minuteChoices(view.rules).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      role="radio"
+                      aria-checked={m === minutes}
+                      className={m === minutes ? "on" : ""}
+                      onClick={() => setMinutes(m)}
+                    >
+                      {m} 分钟
+                    </button>
+                  ))}
+                </div>
                 <p className="muted">
-                  {session?.rules.minutes ?? view.rules.minutes} 分钟，
                   {view.rules.maxStrikes}{" "}
                   次违规算失败。教练会在你看不到的时候来查岗。
                 </p>
@@ -816,7 +922,7 @@ function PlayerStudy({
                   </button>
                 )}
                 <button className="button primary" onClick={() => void start()}>
-                  <Play size={17} /> 开始 {view.rules.minutes} 分钟
+                  <Play size={17} /> 开始 {minutes} 分钟
                 </button>
               </>
             )}
@@ -839,7 +945,14 @@ function PlayerStudy({
 
       {(phase === "running" || phase === "paused") && session && (
         <Hud
+          view={view}
           session={session}
+          coach={coach}
+          bigCam={bigCam}
+          onToggleCam={() => {
+            setBigCam(!bigCam);
+            save(KEYS.selfView, bigCam ? "small" : "big");
+          }}
           remaining={Date.parse(session.endsAt) - now()}
           pauseLeft={
             session.pausedAt
@@ -876,8 +989,6 @@ function PlayerStudy({
           </button>
         </section>
       )}
-
-      <CoachOverlay view={view} event={coach} />
 
       {consentOpen && (
         <Consent
@@ -951,7 +1062,7 @@ function Intro({
           <p className="board-note">{boardNote(r)}</p>
         </div>
         <div className="hero-door">
-          <DoorWindow src={coachSrc(view, "calm")} mood="calm" size="lg" />
+          <Door view={view} still="calm" />
           <p>“{view.coach.lines.calm}”</p>
         </div>
       </section>
@@ -1092,7 +1203,11 @@ function Consent({
 }
 
 function Hud({
+  view,
   session,
+  coach,
+  bigCam,
+  onToggleCam,
   remaining,
   pauseLeft,
   paused,
@@ -1107,7 +1222,11 @@ function Hud({
   struckOut,
   onKeepGoing,
 }: {
+  view: StudyView;
   session: ViewSession;
+  coach: CoachEvent | null;
+  bigCam: boolean;
+  onToggleCam: () => void;
   remaining: number;
   pauseLeft: number;
   paused: boolean;
@@ -1166,24 +1285,32 @@ function Hud({
           </div>
         </div>
       )}
-      <section className={`study-board running ${paused ? "is-paused" : ""}`}>
-        <div className="board-top">
-          <span>{paused ? "暂停中 · 必须在这之前回来" : "距下课还有"}</span>
-          <StrikeMarks
-            used={Math.min(r.effective, rules.maxStrikes)}
-            max={rules.maxStrikes}
-          />
-        </div>
-        <div className="board-clock" aria-live="off">
-          {clock(paused ? pauseLeft : remaining)}
-        </div>
-        <div className="board-foot">
-          <span>
-            提醒 {r.warnings} 次 · 违规{" "}
-            {Math.min(r.effective, rules.maxStrikes)} / {rules.maxStrikes}
-            {r.effective > rules.maxStrikes && `（共 ${r.effective} 次）`}
-          </span>
-          <span>{paused ? "摄像头已关闭" : "教练随时会来查岗"}</span>
+      <section className="study-hero live">
+        <section
+          className={`study-board running ${paused ? "is-paused" : ""}`}
+        >
+          <div className="board-top">
+            <span>{paused ? "暂停中 · 必须在这之前回来" : "距下课还有"}</span>
+            <StrikeMarks
+              used={Math.min(r.effective, rules.maxStrikes)}
+              max={rules.maxStrikes}
+            />
+          </div>
+          <div className="board-clock" aria-live="off">
+            {clock(paused ? pauseLeft : remaining)}
+          </div>
+          {session.goal && <p className="board-goal">今晚学：{session.goal}</p>}
+          <div className="board-foot">
+            <span>
+              提醒 {r.warnings} 次 · 违规{" "}
+              {Math.min(r.effective, rules.maxStrikes)} / {rules.maxStrikes}
+              {r.effective > rules.maxStrikes && `（共 ${r.effective} 次）`}
+            </span>
+            <span>{paused ? "摄像头已关闭" : "教练随时会来查岗"}</span>
+          </div>
+        </section>
+        <div className="hero-door">
+          <Door view={view} event={paused ? null : coach} />
         </div>
       </section>
       {aiDown && (
@@ -1192,7 +1319,7 @@ function Hud({
         </p>
       )}
       <div className="study-hud">
-        <div className="white-panel hud-camera">
+        <div className={`white-panel hud-camera ${bigCam ? "" : "compact"}`}>
           {paused ? (
             <div className="camera-off">
               <Pause size={28} />
@@ -1207,26 +1334,41 @@ function Hud({
               autoPlay
             />
           )}
-          {cameraLost && !paused && (
-            <div className="camera-lost" role="alert">
-              摄像头断开了，这段时间会算作离开镜头。
-              <button className="small-button" onClick={onRetryCamera}>
-                重新开启
+          <div className="hud-signals">
+            {cameraLost && !paused && (
+              <div className="camera-lost" role="alert">
+                摄像头断开了，这段时间会算作离开镜头。
+                <button className="small-button" onClick={onRetryCamera}>
+                  重新开启
+                </button>
+              </div>
+            )}
+            {!paused && (
+              <ul className="signal-list">
+                {signals.map(({ icon: Icon, label, ok }) => (
+                  <li
+                    key={label}
+                    className={ok === null ? "unknown" : ok ? "ok" : "bad"}
+                  >
+                    <Icon size={15} /> {ok === null ? "检测中…" : label}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {!paused && (
+              <button className="text-button" onClick={onToggleCam}>
+                {bigCam ? (
+                  <>
+                    <Minimize2 size={15} /> 缩小镜头
+                  </>
+                ) : (
+                  <>
+                    <Maximize2 size={15} /> 看看镜头
+                  </>
+                )}
               </button>
-            </div>
-          )}
-          {!paused && (
-            <ul className="signal-list">
-              {signals.map(({ icon: Icon, label, ok }) => (
-                <li
-                  key={label}
-                  className={ok === null ? "unknown" : ok ? "ok" : "bad"}
-                >
-                  <Icon size={15} /> {ok === null ? "检测中…" : label}
-                </li>
-              ))}
-            </ul>
-          )}
+            )}
+          </div>
         </div>
         <div className="white-panel hud-events">
           <h2>这次的记录</h2>
@@ -1371,6 +1513,8 @@ function SessionList({
                     {s.rules.maxStrikes}
                     {counted.length > 0 &&
                       ` · ${[...new Set(counted.map((x) => SOURCE_LABEL[x.source]))].join("、")}`}
+                    {s.visits.length > 0 &&
+                      ` · 裁判来过 ${s.visits.length} 次`}
                   </span>
                   <span className="session-layers">
                     {s.layers.ai && <span title="AI 查岗">AI</span>}
@@ -1379,6 +1523,12 @@ function SessionList({
                   </span>
                 </summary>
                 <div className="session-body">
+                  {s.goal && (
+                    <p className="session-goal">
+                      <b>这场学的</b>
+                      {s.goal}
+                    </p>
+                  )}
                   {s.strikes.length === 0 ? (
                     <p className="muted">没有提醒或违规。</p>
                   ) : (
@@ -1539,36 +1689,207 @@ function DeleteSnapshots({ view, post }: { view: StudyView; post: Post }) {
   );
 }
 
-function RefereeStudy({ view, post }: { view: StudyView; post: Post }) {
+function RefereeStudy({
+  view,
+  post,
+  now,
+  reload,
+}: {
+  view: StudyView;
+  post: Post;
+  now: () => number;
+  reload: () => Promise<void>;
+}) {
   const done = view.sessions.filter((s) => s.endedAt),
     passed = done.filter((s) => s.result.status === "passed").length;
+  const live = view.sessions.find((s) => !s.endedAt) ?? null,
+    liveId = live?.id ?? null;
+  const [, setTick] = useState(0);
+  // While she studies, the page keeps up with her clock and with whether she saw the door open.
+  useEffect(() => {
+    const poll = setInterval(
+      () => {
+        if (!document.hidden) void reload();
+      },
+      liveId ? 8_000 : 30_000,
+    );
+    const tick = liveId
+      ? setInterval(() => setTick((n) => n + 1), 1000)
+      : undefined;
+    return () => {
+      clearInterval(poll);
+      clearInterval(tick);
+    };
+  }, [liveId, reload]);
+  const paused = live?.result.status === "paused";
   return (
     <>
       <section className="study-hero referee">
-        <div className="study-board">
-          <div className="board-top">
-            <span>她的晚自习</span>
+        {live ? (
+          <div
+            className={`study-board running ${paused ? "is-paused" : ""}`}
+          >
+            <div className="board-top">
+              <span>
+                {paused
+                  ? "她暂停了，摄像头关着"
+                  : "她正在晚自习 · 距下课还有"}
+              </span>
+              <StrikeMarks
+                used={Math.min(live.result.effective, live.rules.maxStrikes)}
+                max={live.rules.maxStrikes}
+              />
+            </div>
+            <div className="board-clock">
+              {clock(Date.parse(live.endsAt) - now())}
+            </div>
+            {live.goal && <p className="board-goal">今晚学：{live.goal}</p>}
+            <div className="board-foot">
+              <span>
+                提醒 {live.result.warnings} 次 · 违规{" "}
+                {Math.min(live.result.effective, live.rules.maxStrikes)} /{" "}
+                {live.rules.maxStrikes}
+              </span>
+              <span>{nyTime(live.startedAt)} 开始</span>
+            </div>
           </div>
-          <div className="board-clock">
-            {passed}
-            <small> / {done.length}</small>
+        ) : (
+          <div className="study-board">
+            <div className="board-top">
+              <span>她的晚自习</span>
+            </div>
+            <div className="board-clock">
+              {passed}
+              <small> / {done.length}</small>
+            </div>
+            <p className="board-note">
+              次通过。误判的违规可以推翻，结果和请客基金会重新计算。
+            </p>
           </div>
-          <p className="board-note">
-            次通过。误判的违规可以推翻，结果和请客基金会重新计算。
-          </p>
-        </div>
+        )}
         <div className="hero-door">
-          <DoorWindow src={coachSrc(view, "calm")} mood="calm" size="lg" />
+          <Door view={view} still="calm" />
           <p>
+            {live
+              ? "她的屏幕上也有这扇门。"
+              : "她开始晚自习时，你可以从这里去后门看看她。"}{" "}
             教练照片和台词在 <Link href="/settings">挑战设置</Link> 里修改。
           </p>
         </div>
       </section>
+      {live && <LiveVisit view={view} session={live} post={post} now={now} />}
       <SessionList view={view} referee={{ post }} />
       <p className="muted small study-footnote">
         <ShieldCheck size={14} />{" "}
         截图只有在她打开「违规截图给裁判看」时才会上传，她可以随时全部删除。
       </p>
     </>
+  );
+}
+
+/** The referee opens the door on her screen: a face, a line, and whether she saw it. */
+function LiveVisit({
+  view,
+  session,
+  post,
+  now,
+}: {
+  view: StudyView;
+  session: ViewSession;
+  post: Post;
+  now: () => number;
+}) {
+  const [mood, setMood] = useState<CoachMood>("calm"),
+    [line, setLine] = useState(view.coach.lines.calm),
+    [busy, setBusy] = useState(false);
+  const paused = session.result.status === "paused";
+  const last = session.visits.at(-1);
+  const wait = last
+    ? Math.max(0, VISIT_GAP_MS - (now() - Date.parse(last.at)))
+    : 0;
+  if (!view.features.visits)
+    return (
+      <section className="white-panel live-visit">
+        <div className="live-visit-head">
+          <h2>去后门看看她</h2>
+          <p>
+            真人查岗需要先在 Supabase SQL Editor 执行
+            supabase/migrations/003_visits.sql，然后刷新这个页面。
+          </p>
+        </div>
+      </section>
+    );
+  return (
+    <section className="white-panel live-visit">
+      <div className="live-visit-head">
+        <h2>去后门看看她</h2>
+        <p>选一张脸、说一句话，她屏幕上的这扇门就会打开。</p>
+      </div>
+      <div className="mood-picker" role="radiogroup" aria-label="用哪张脸">
+        {COACH_MOODS.map((m) => (
+          <button
+            key={m}
+            type="button"
+            role="radio"
+            aria-checked={m === mood}
+            onClick={() => {
+              setMood(m);
+              setLine(view.coach.lines[m]);
+            }}
+          >
+            <DoorWindow src={coachSrc(view, m)} mood={m} size="sm" />
+            {COACH_MOOD_LABEL[m]}
+          </button>
+        ))}
+      </div>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          const reply = await post({
+            type: "visit",
+            sessionId: session.id,
+            mood,
+            line,
+          });
+          setBusy(false);
+          if (reply) toast.success("门开了，她几秒内就会看到");
+        }}
+      >
+        <input
+          value={line}
+          onChange={(e) => setLine(e.target.value)}
+          maxLength={120}
+          required
+          aria-label="对她说的话"
+        />
+        <button
+          className="button primary"
+          disabled={busy || paused || wait > 0}
+        >
+          <DoorOpen size={17} />{" "}
+          {paused
+            ? "她暂停了，等她回来"
+            : wait > 0
+              ? `刚去过 · ${Math.ceil(wait / 1000)} 秒后再去`
+              : "开门"}
+        </button>
+      </form>
+      {session.visits.length > 0 && (
+        <ul className="visit-log">
+          {[...session.visits].reverse().map((v) => (
+            <li key={v.id}>
+              <time>{nyTime(v.at)}</time>
+              {COACH_MOOD_LABEL[v.mood]} · “{v.line}”
+              {v.seenAt ? (
+                <em>她看到了</em>
+              ) : (
+                <em className="pending">还没看到</em>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

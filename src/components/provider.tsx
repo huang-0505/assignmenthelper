@@ -113,7 +113,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
               ? "玩家名字已更新，玩家需要用新名字重新进入"
               : input.type === "coachLines"
                 ? "教练台词已保存"
-                : "已保存，继续向前！",
+                : input.type === "coachNote"
+                  ? input.text
+                    ? "留言已放到她的今日页面"
+                    : "留言已清除"
+                  : "已保存，继续向前！",
       );
       return true;
     } catch (error) {

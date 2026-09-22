@@ -3,6 +3,7 @@ import {
   DEFAULT_STUDY,
   type StudyRules,
   type StudyView,
+  type StudyVisit,
 } from "../src/lib/study";
 import type { GameState } from "../src/lib/types";
 
@@ -19,13 +20,16 @@ const env = vi.hoisted(() => {
   const db = {
     study_sessions: [] as Row[],
     study_strikes: [] as Row[],
+    study_visits: [] as Row[],
     files: new Map<string, Uint8Array>(),
+    /** Pretend 003_visits.sql has not run: no goal column, no visits table. */
+    legacy: false,
   };
   class Query {
     private filters: ((r: Row) => boolean)[] = [];
     private single = false;
     constructor(
-      private table: "study_sessions" | "study_strikes",
+      private table: "study_sessions" | "study_strikes" | "study_visits",
       private op: "select" | "insert" | "update",
       private payload?: Row,
       private columns = "*",
@@ -54,8 +58,14 @@ const env = vi.hoisted(() => {
     }
     private run() {
       const rows = db[this.table];
+      if (db.legacy && this.columns.includes("study_visits("))
+        return { data: null, error: { code: "PGRST200" } };
+      if (db.legacy && this.table === "study_visits")
+        return { data: null, error: { code: "PGRST205" } };
       if (this.op === "insert") {
-        const row = structuredClone(this.payload!);
+        // Like the wire: undefined fields never leave the client.
+        const row = JSON.parse(JSON.stringify(this.payload)) as Row;
+        if (db.legacy && "goal" in row) return { error: { code: "PGRST204" } };
         const running =
           this.table === "study_sessions" &&
           row.ended_at == null &&
@@ -70,21 +80,20 @@ const env = vi.hoisted(() => {
         hits.forEach((r) => Object.assign(r, structuredClone(this.payload)));
         return { error: null };
       }
-      const out = hits.map((r) =>
-        this.columns.includes("study_strikes")
-          ? {
-              ...structuredClone(r),
-              study_strikes: db.study_strikes
-                .filter((s) => s.session_id === r.id)
-                .map((s) => structuredClone(s)),
-            }
-          : structuredClone(r),
-      );
+      const out = hits.map((r) => {
+        const row = structuredClone(r);
+        for (const child of ["study_strikes", "study_visits"] as const)
+          if (this.columns.includes(`${child}(`))
+            row[child] = db[child]
+              .filter((x) => x.session_id === r.id)
+              .map((x) => structuredClone(x));
+        return row;
+      });
       return { data: this.single ? (out[0] ?? null) : out, error: null };
     }
   }
   const client = {
-    from: (table: "study_sessions" | "study_strikes") => ({
+    from: (table: "study_sessions" | "study_strikes" | "study_visits") => ({
       select: (columns = "*") => new Query(table, "select", undefined, columns),
       insert: (row: Row) => new Query(table, "insert", row),
       update: (patch: Row) => new Query(table, "update", patch),
@@ -232,6 +241,8 @@ beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   clock(0);
   env.db.study_sessions.length = env.db.study_strikes.length = 0;
+  env.db.study_visits.length = 0;
+  env.db.legacy = false;
   env.db.files.clear();
   env.state = undefined;
   env.judge = null;
@@ -590,5 +601,113 @@ describe("study sessions", () => {
       snapshot: png,
     });
     expect(bad.status).toBe(400);
+  });
+  it("lets her pick a goal and a length, and lets the referee open the door while she studies", async () => {
+    as(player);
+    expect(
+      (
+        await post({
+          type: "start",
+          ai: false,
+          screen: false,
+          share: false,
+          minutes: 33,
+        })
+      ).status,
+    ).toBe(400);
+    const started = await post({
+      type: "start",
+      ai: false,
+      screen: false,
+      share: false,
+      goal: "SQL 窗口函数",
+      minutes: 50,
+    });
+    expect(started.status).toBe(200);
+    const s = started.body.sessions[0];
+    expect(s).toMatchObject({ goal: "SQL 窗口函数", visits: [] });
+    expect(s.rules.minutes).toBe(50);
+    expect(s.endsAt).toBe(new Date(START + 50 * 60_000).toISOString());
+    expect(started.body.features).toEqual({ visits: true });
+    expect(
+      (
+        await post({
+          type: "visit",
+          sessionId: s.id,
+          mood: "pleased",
+          line: "加油",
+        })
+      ).status,
+    ).toBe(403);
+    as(referee);
+    clock(1);
+    const opened = await post({
+      type: "visit",
+      sessionId: s.id,
+      mood: "pleased",
+      line: "看到你在学，很好",
+    });
+    expect(opened.status).toBe(200);
+    expect(opened.body.visit).toMatchObject({ mood: "pleased", seenAt: null });
+    expect(opened.body.sessions[0].visits).toHaveLength(1);
+    expect(
+      (
+        await post({
+          type: "visit",
+          sessionId: s.id,
+          mood: "calm",
+          line: "再看一眼",
+        })
+      ).status,
+    ).toBe(429);
+    expect((env.state as GameState).audit.at(-1)).toMatchObject({
+      action: "studyVisit",
+      detail: "去后门看了她（一切正常）：看到你在学，很好",
+    });
+    as(player);
+    const beat = await post({ type: "heartbeat", sessionId: s.id });
+    const visit = beat.body.visit as unknown as StudyVisit;
+    expect(visit).toMatchObject({ line: "看到你在学，很好" });
+    await post({ type: "visitSeen", sessionId: s.id, visitId: visit.id });
+    expect(
+      (await post({ type: "heartbeat", sessionId: s.id })).body.visit,
+    ).toBeUndefined();
+    expect((await view()).sessions[0].visits[0].seenAt).toBeTruthy();
+    await post({ type: "pause", sessionId: s.id });
+    as(referee);
+    clock(2);
+    expect(
+      (
+        await post({
+          type: "visit",
+          sessionId: s.id,
+          mood: "calm",
+          line: "在吗",
+        })
+      ).status,
+    ).toBe(409);
+  });
+  it("still runs sessions before 003_visits.sql exists, without goals or visits", async () => {
+    env.db.legacy = true;
+    as(player);
+    const started = await post({
+      type: "start",
+      ai: false,
+      screen: false,
+      share: false,
+      goal: "SQL 窗口函数",
+    });
+    expect(started.status).toBe(200);
+    expect(started.body.sessions[0]).toMatchObject({ goal: null, visits: [] });
+    expect(started.body.features).toEqual({ visits: false });
+    as(referee);
+    const visit = await post({
+      type: "visit",
+      sessionId: started.body.sessions[0].id,
+      mood: "calm",
+      line: "在吗",
+    });
+    expect(visit.status).toBe(503);
+    expect(visit.body.error).toContain("003_visits.sql");
   });
 });

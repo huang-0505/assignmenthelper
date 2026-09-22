@@ -10,6 +10,7 @@ beforeAll(async () => {
   );
   await db.exec(readFileSync("supabase/migrations/001_initial.sql", "utf8"));
   await db.exec(readFileSync("supabase/migrations/002_study.sql", "utf8"));
+  await db.exec(readFileSync("supabase/migrations/003_visits.sql", "utf8"));
   await db.exec(readFileSync("supabase/seed.sql", "utf8"));
 }, 30000);
 const openSession = (id: string) =>
@@ -88,6 +89,37 @@ describe("Postgres migration, seed and security", () => {
     );
     expect(left.rows[0].n).toBe(0);
   });
+  it("keeps a session's goal short and its visits to the three faces, deleted with the session", async () => {
+    const id = "00000000-0000-4000-8000-00000000000c";
+    await db.query(
+      "UPDATE public.study_sessions SET ended_at = now(), end_reason = 'completed' WHERE ended_at IS NULL",
+    );
+    await openSession(id);
+    await db.query(
+      "UPDATE public.study_sessions SET goal = $2 WHERE id = $1",
+      [id, "SQL 窗口函数"],
+    );
+    await expect(
+      db.query("UPDATE public.study_sessions SET goal = $2 WHERE id = $1", [
+        id,
+        "x".repeat(81),
+      ]),
+    ).rejects.toThrow();
+    const visit = (mood: string) =>
+      db.query(
+        `INSERT INTO public.study_visits (id, session_id, at, mood, line)
+         VALUES (gen_random_uuid(), $1, now(), $2, '加油！')`,
+        [id, mood],
+      );
+    await visit("pleased");
+    await expect(visit("sleepy")).rejects.toThrow();
+    await db.query("DELETE FROM public.study_sessions WHERE id = $1", [id]);
+    const left = await db.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM public.study_visits WHERE session_id = $1",
+      [id],
+    );
+    expect(left.rows[0].n).toBe(0);
+  });
   it.each(["anon", "authenticated"])(
     "denies the %s browser role any table or RPC access",
     async (role) => {
@@ -104,6 +136,9 @@ describe("Postgres migration, seed and security", () => {
         ).rejects.toThrow();
         await expect(
           db.query("SELECT * FROM public.study_strikes"),
+        ).rejects.toThrow();
+        await expect(
+          db.query("SELECT * FROM public.study_visits"),
         ).rejects.toThrow();
         await expect(
           db.query(`SELECT public.commit_game(1,'{"version":1}'::jsonb)`),

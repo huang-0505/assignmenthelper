@@ -72,6 +72,18 @@ export const DEFAULT_COACH_LINES: Record<CoachMood, string> = {
   angry: "这次被我看到啦，回来继续吧。",
   pleased: "很专心，继续保持！",
 };
+/** What each face is called wherever the referee picks one. */
+export const COACH_MOOD_LABEL: Record<CoachMood, string> = {
+  calm: "查岗中",
+  angry: "看到走神",
+  pleased: "一切正常",
+};
+/** Session lengths she can pick before starting: three presets plus the referee's default. */
+export function minuteChoices(rules: Pick<StudyRules, "minutes">) {
+  return [...new Set([25, 50, 90, rules.minutes])].sort((a, b) => a - b);
+}
+/** The referee can open the door again only after this long. */
+export const VISIT_GAP_MS = 20_000;
 
 export type StrikeKind = "strike" | "warning";
 export type LocalSource = "absent" | "phone" | "look_away" | "drowsy";
@@ -125,6 +137,14 @@ export type StudyStrike = {
 };
 export type EndReason =
   "completed" | "ended_early" | "pause_exceeded" | "abandoned";
+/** The referee opened the door on her screen: which face, what was said, and whether she saw it. */
+export type StudyVisit = {
+  id: string;
+  at: string;
+  mood: CoachMood;
+  line: string;
+  seenAt: string | null;
+};
 export type StudySession = {
   id: string;
   day: string;
@@ -139,9 +159,12 @@ export type StudySession = {
   rules: StudyRules;
   layers: { ai: boolean; screen: boolean };
   share: boolean;
+  /** What she set out to study, in her words; null when she skipped it. */
+  goal: string | null;
   summary: string | null;
   summaryGrade: { score: number | null; tip: string } | null;
   strikes: StudyStrike[];
+  visits: StudyVisit[];
 };
 export type StudyStatus = "active" | "paused" | "summary" | "passed" | "failed";
 export type StudyResult = {
@@ -226,6 +249,8 @@ export type StudyView = {
   };
   /** The configured vision provider, or null when AI checks are unavailable. */
   ai: { id: string; label: string } | null;
+  /** Live visits need 003_visits.sql; until it runs the referee sees a setup hint instead. */
+  features: { visits: boolean };
   sessions: (StudySession & { result: StudyResult })[];
   serverTime: string;
 };

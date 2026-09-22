@@ -101,6 +101,8 @@ export type GameState = {
   coach?: {
     lines?: Partial<Record<CoachMood, string>>;
     photos?: Partial<Record<CoachMood, string>>;
+    /** One line from the referee, shown on her Today page until it is changed or cleared. */
+    note?: { text: string; at: string };
   };
 };
 export type DayStatus =

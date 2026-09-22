@@ -39,6 +39,7 @@ import {
 import type { Day, Question } from "@/lib/types";
 import data from "../../data/bq.json";
 import { useGame } from "./provider";
+import { DoorWindow } from "./study-parts";
 import { Modal, Progress, SectionHeading, Status } from "./ui";
 const bank = data as Question[];
 const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
@@ -113,11 +114,36 @@ export function Today() {
             <br />
             更近一步。
           </h2>
-          <p>
-            把大目标拆成小胜利。
-            <br className="mobile-only" />
-            今天的努力，未来的你会记得。
-          </p>
+          {state.coach?.note ? (
+            <div className="hero-note">
+              <DoorWindow
+                src={
+                  state.coach.photos?.calm
+                    ? `/api/study/media?coach=calm&v=${state.coach.photos.calm}`
+                    : null
+                }
+                mood="calm"
+                size="sm"
+              />
+              <div>
+                <p>“{state.coach.note.text}”</p>
+                <small>
+                  裁判 ·{" "}
+                  {new Date(state.coach.note.at).toLocaleDateString("zh-CN", {
+                    timeZone: "America/New_York",
+                    month: "numeric",
+                    day: "numeric",
+                  })}
+                </small>
+              </div>
+            </div>
+          ) : (
+            <p>
+              把大目标拆成小胜利。
+              <br className="mobile-only" />
+              今天的努力，未来的你会记得。
+            </p>
+          )}
           <div className="hero-progress">
             <div>
               <span>今日任务进度</span>
