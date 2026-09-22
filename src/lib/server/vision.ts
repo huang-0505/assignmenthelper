@@ -51,7 +51,8 @@ function gemini(
           "x-goog-api-key": key,
           "Content-Type": "application/json",
         },
-        signal: AbortSignal.timeout(15000),
+        // Google usually answers in a few seconds; a hung request should hand over to the spares fast.
+        signal: AbortSignal.timeout(10000),
         cache: "no-store",
         body: JSON.stringify({
             systemInstruction: { parts: [{ text: PROMPT }] },
