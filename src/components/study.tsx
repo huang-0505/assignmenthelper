@@ -1061,11 +1061,16 @@ function Consent({
           我们的服务器不保存这些画面。只有你打开「违规截图给裁判看」并且被记提醒或违规时，才保存那一张摄像头截图。
         </li>
         {gemini ? (
-          <li className="consent-warning">
-            使用 Gemini API 免费额度时，Google
-            会用提交的内容改进它的产品，可能有人工审核员查看这些画面。Google
-            建议不要在免费服务中提交个人或敏感信息。开通付费的 API key
-            后，内容不会用于改进产品。
+          <li>
+            Google 按照{" "}
+            <a
+              href="https://ai.google.dev/gemini-api/terms"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Gemini API 条款
+            </a>
+            处理这些画面。
           </li>
         ) : (
           <li className="consent-warning">

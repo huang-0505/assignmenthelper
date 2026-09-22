@@ -48,9 +48,9 @@ const FRAME_BYTES = 400_000,
   PHOTO_BYTES = 1_500_000,
   INSPECT_GAP_MS = 45_000;
 const MOOD_LABEL: Record<CoachMood, string> = {
-  calm: "检查中",
+  calm: "查岗中",
   angry: "看到走神",
-  pleased: "满意",
+  pleased: "一切正常",
 };
 // Graded by the same model chain as interview answers; the rubric describes a useful recap.
 const SUMMARY: Question = {

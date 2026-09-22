@@ -4279,6 +4279,11 @@ body {
   font-size: 14px;
   line-height: 1.7;
 }
+.study-list a {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
 .consent-warning {
   list-style: none;
   margin-left: -18px;
