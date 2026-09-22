@@ -416,7 +416,14 @@ async function handle(
         frames.push({ kind: "screen", jpeg: body.screen });
       }
       // Frames go to the provider for this judgment only; nothing is kept unless a shared strike needs it.
-      const verdict = await provider.judge(frames).catch(() => null);
+      const verdict = await provider.judge(frames).catch((error: unknown) => {
+        // The reason lands in the server logs; the page only learns that this check is unavailable.
+        console.error(
+          "[study] AI inspection failed:",
+          error instanceof Error ? `${error.name}: ${error.message}` : error,
+        );
+        return null;
+      });
       if (!verdict) return { inspection: { unavailable: true } };
       const kind = inspectionAction(verdict, rules);
       if (kind) {

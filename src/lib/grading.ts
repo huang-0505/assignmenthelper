@@ -5,7 +5,9 @@ export const gradeSchema = z.object({
   missing: z.array(z.string().max(500)).max(6),
   tip: z.string().min(1).max(500),
 });
+// A cheap paid model leads: OpenRouter's free models spend much of the day rate-limited.
 export const DEFAULT_MODELS = [
+  "qwen/qwen3.7-flash",
   "qwen/qwen3.8-27b:free",
   "google/gemma-4-31b-it:free",
   "nvidia/nemotron-3-super-120b-a12b:free",

@@ -580,7 +580,8 @@ function PlayerStudy({
     const { session: s, aiDown: down, post: send } = latest.current;
     if (!s || !video.current) return;
     showCoach({ mood: "calm", tag: "查岗", inspecting: true }, 0);
-    if (s.layers.ai && !down) {
+    // A failed AI check falls back to the camera for this inspection only; the next one tries again.
+    if (s.layers.ai) {
       const cameraFrame = captureJpeg(video.current, 320);
       const screenFrame =
         screen.current && screenVideo.current
@@ -599,6 +600,7 @@ function PlayerStudy({
         : null;
       const found = reply?.inspection;
       if (found && !found.unavailable) {
+        setAiDown(false);
         if (found.kind === "strike")
           return showCoach({
             mood: "angry",
@@ -614,7 +616,7 @@ function PlayerStudy({
         return showCoach({ mood: "pleased", detail: found.verdict?.reason });
       }
       setAiDown(true);
-      toast("AI 检查暂时不可用，这次学习改用本机检测");
+      if (!down) toast("AI 查岗这次没成功，先用本机检测，下次查岗会再试");
     } else await wait(1800);
     const sample = latest.current.live;
     showCoach(
@@ -1403,7 +1405,7 @@ function Hud({
       </section>
       {aiDown && (
         <p className="study-notice">
-          AI 查岗暂时不可用，这次学习改用本机检测。
+          上一次 AI 查岗没成功，先用本机检测；下次查岗会再试。
         </p>
       )}
       <div className="study-hud">

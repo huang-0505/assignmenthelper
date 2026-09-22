@@ -51,7 +51,7 @@ cp -n .env.example .env.local
 | `REFEREE_KEY`               | 随机长字符串：裁判专属链接的密钥，同时用于签名会话 cookie                                                           |
 | `LLM_BASE_URL`              | 默认 `https://openrouter.ai/api/v1`；其他 OpenAI-compatible 服务填写其 API base URL                                 |
 | `LLM_API_KEY`               | 对应服务商的 API key，只在服务器使用；留空时全部转裁判审核                                                          |
-| `LLM_MODELS`                | 按优先级排列、用逗号分隔的模型 ID；默认全部为 OpenRouter `:free` 模型                                               |
+| `LLM_MODELS`                | 按优先级排列、用逗号分隔的模型 ID；默认先用便宜的 `qwen/qwen3.7-flash`，再依次试 OpenRouter 的 `:free` 模型          |
 | `APP_URL`                   | 本地可留空（自动使用请求的 origin）；上线后必须设为最终 HTTPS 域名                                                  |
 | `CRON_SECRET`               | 随机长字符串，用于验证 Vercel cron 请求                                                                             |
 | `DEMO_MODE`                 | 正式使用设为 `false`；明确设为 `true` 可展示独立本机演示                                                            |
@@ -59,6 +59,8 @@ cp -n .env.example .env.local
 | `GRADER`                    | 留空时有 Gemini key 就优先用 Gemini 评分，失败再走 `LLM_*` 链；设为 `openai` 只用 `LLM_*` 链                        |
 | `GEMINI_MODEL`              | 默认 `gemini-3.5-flash-lite`                                                                                        |
 | `VISION_PROVIDER`           | 留空为 Gemini；设为 `openai` 并填 `VISION_MODEL` 可改用任意 OpenAI 兼容的视觉模型                                   |
+| `GEMINI_FALLBACK_MODELS`    | 主模型返回 503 / 429（过载）时依次再试的 Gemini 模型，逗号分隔；默认 `gemini-3.1-flash-lite`，留空关闭             |
+| `VISION_FALLBACK_MODELS`    | Gemini 整体失败时，用 `LLM_*` 凭据依次再试的 OpenAI 兼容视觉模型；默认 `qwen/qwen3.7-flash,google/gemma-4-31b-it:free`（前者约 $0.00005 一次），留空关闭 |
 
 可以用以下命令分别生成 `CRON_SECRET` 和 `REFEREE_KEY`，在自己的终端里复制到环境变量。不要提交 `.env.local`。
 
@@ -88,7 +90,7 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'
 - **结果**：学完且未到失败线即通过，当天最低目标完成时额外加分（20 / 30 / 45 分钟默认分别 +15 / +25 / +40，三种时长每天合计最多奖励 5 次，不影响当天是否达标）。失败时 $5 进请客基金（沿用「请裁判吃饭」的兑换）。失败包括：累计 3 次违规、提前结束、离开页面超过 3 分钟（没有心跳）、暂停超过 5 分钟。每次可暂停 1 次。到达失败线后计时继续；如果她学完，而裁判推翻了误判，结果会重新计算为通过。
 - **第 1 层，本机连续检测**（每 2 秒，MediaPipe Face Landmarker + EfficientDet-Lite0，模型只在打开学习模式时加载）：离开镜头超过 3 分钟、最近 5 次检测里 4 次看到手机（之后 2 分钟内不重复）、闭眼超过 1 分钟，各记 1 次提醒。视线偏离默认关闭（在设置里填秒数即可开启，需要每场开始前的 5 秒校准）。
 - **第 2 层，屏幕**（每场自愿开启）：通过 `getDisplayMedia` 共享整个屏幕，只在查岗那一刻截一帧，仅供 AI 判断，从不保存。停止共享后自动改为只看摄像头。
-- **第 3 层，AI 查岗**：查岗间隔在 3–8 分钟之间随机。把 1 张缩小的摄像头画面（和可选的屏幕画面）发给视觉模型，返回严格 JSON。默认只有娱乐 / 离开且把握 ≥ 0.85、或聊天且把握 ≥ 0.9 时记 1 次提醒；看不清或把握不够都不处理。模型失败或额度用完时，这一场改用本机检测并提示。
+- **第 3 层，AI 查岗**：查岗间隔在 3–8 分钟之间随机。把 1 张缩小的摄像头画面（和可选的屏幕画面）发给视觉模型，返回严格 JSON。默认只有娱乐 / 离开且把握 ≥ 0.85、或聊天且把握 ≥ 0.9 时记 1 次提醒；看不清或把握不够都不处理。主模型过载（503 / 429）时先重试一次，再依次试 `GEMINI_FALLBACK_MODELS`；Gemini 整体失败时再试 `VISION_FALLBACK_MODELS`（OpenRouter 的免费多模态模型）。全部失败时这一次查岗改用本机检测并提示，下一次查岗会再试 AI；服务端日志会记录失败原因。
 - **下课总结**：计时结束后写三行总结，用答题的同一套评分；只有空洞、和学习无关的总结（1 分）才记 1 次提醒。
 - **严格模式**（设置里可选）：恢复更严格的规则：离开镜头和看手机直接记违规；AI 把握 ≥ 0.7 记违规、0.5–0.7 或聊天记提醒；总结低于 3 分记提醒。各项秒数和门槛都可以单独调整。
 - **开始前**：这些都写在黑板上：勾选这场的目标（投递、Networking、技术、面试/BQ、项目、英语、自由学习），可以再补一句，然后圈一个时长（20 / 30 / 45 分钟）；黑板脚注显示这场的奖励和今天剩余的奖励名额。一场内允许切换不同学习或求职活动。上课时自己的画面默认缩成小图，想看再点开；「敲门声」默认关闭。
@@ -134,7 +136,7 @@ Hobby cron 每天只能执行一次，且不保证精确到分钟。因此，**�
 
 ## 评分与人工审核
 
-配置了 `GEMINI_API_KEY` 时先用 Gemini（结构化 JSON 输出，一次不到一分钱），失败或未配置时服务端向 `/chat/completions` 提交题目、rubric 和答案。评分 JSON 必须满足 1–5 整数、最多六个缺失要点和一条改进建议，字段全部经过 Zod 验证。429、其他非成功状态、超时和无效 JSON 都会尝试下一个模型。默认模型来自 OpenRouter 免费列表，供应可能变化，可更新 `LLM_MODELS`；[当前免费模型](https://openrouter.ai/collections/free-models)。
+配置了 `GEMINI_API_KEY` 时先用 Gemini（结构化 JSON 输出，一次不到一分钱），失败或未配置时服务端向 `/chat/completions` 提交题目、rubric 和答案。评分 JSON 必须满足 1–5 整数、最多六个缺失要点和一条改进建议，字段全部经过 Zod 验证。429、其他非成功状态、超时和无效 JSON 都会尝试下一个模型。默认先用 OpenRouter 上便宜的 `qwen/qwen3.7-flash`（一次评分约 $0.0001），再依次试免费模型；免费模型一天里大部分时间会被限流（429），所以不要只配免费模型。供应可能变化，可更新 `LLM_MODELS`；[当前免费模型](https://openrouter.ai/collections/free-models)。
 
 提交答案会先保存为 pending，再调用模型。服务中断或全部失败时答案不会丢失，裁判可以通过 / 拒绝并填写理由。每一天最多提交五次；pending 状态下先完成裁判审核，再允许提交新版本。当前最低要求使用**最近一次答案**的最终评分。
 

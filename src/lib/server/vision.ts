@@ -33,22 +33,27 @@ const parse = (text: unknown) =>
     ),
   );
 
-function gemini(key: string, model: string): VisionProvider {
-  return {
-    id: "gemini",
-    label: `Google Gemini API（${model}）`,
-    async judge(frames, fetcher = fetch) {
-      const response = await fetcher(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-        {
-          method: "POST",
-          headers: {
-            "x-goog-api-key": key,
-            "Content-Type": "application/json",
-          },
-          signal: AbortSignal.timeout(15000),
-          cache: "no-store",
-          body: JSON.stringify({
+/** Google answers 503 "high demand" and 429 for a while at a time; those are worth a second try. */
+const BUSY = new Set([429, 503]);
+const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
+
+function gemini(
+  key: string,
+  model: string,
+  fallbacks: string[] = [],
+): VisionProvider {
+  const call = (which: string, frames: Frame[], fetcher: typeof fetch) =>
+    fetcher(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(which)}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "x-goog-api-key": key,
+          "Content-Type": "application/json",
+        },
+        signal: AbortSignal.timeout(15000),
+        cache: "no-store",
+        body: JSON.stringify({
             systemInstruction: { parts: [{ text: PROMPT }] },
             contents: [
               {
@@ -79,8 +84,22 @@ function gemini(key: string, model: string): VisionProvider {
               },
             },
           }),
-        },
-      );
+      },
+    );
+  return {
+    id: "gemini",
+    label: `Google Gemini API（${model}）`,
+    async judge(frames, fetcher = fetch) {
+      // The main model gets one quick retry when busy; then each fallback model gets one attempt.
+      let response = await call(model, frames, fetcher);
+      if (BUSY.has(response.status)) {
+        await pause(1500);
+        response = await call(model, frames, fetcher);
+      }
+      for (const other of fallbacks) {
+        if (!BUSY.has(response.status)) break;
+        response = await call(other, frames, fetcher);
+      }
       if (!response.ok) throw new Error(`Gemini HTTP ${response.status}`);
       const payload = await response.json();
       return parse(
@@ -134,25 +153,66 @@ function openai(baseUrl: string, key: string, model: string): VisionProvider {
   };
 }
 
+/** When the main provider fails outright, the spares get one attempt each, in order. */
+function withSpares(main: VisionProvider, spares: VisionProvider[]): VisionProvider {
+  if (!spares.length) return main;
+  const hosts = [...new Set(spares.map((s) => s.label.split("（")[0]))];
+  return {
+    id: main.id,
+    label: `${main.label}，忙时改用 ${hosts.join(" / ")}`,
+    async judge(frames, fetcher = fetch) {
+      try {
+        return await main.judge(frames, fetcher);
+      } catch (error) {
+        for (const spare of spares) {
+          try {
+            return await spare.judge(frames, fetcher);
+          } catch {
+            /* The next spare gets its turn; the original error is what gets reported. */
+          }
+        }
+        throw error;
+      }
+    },
+  };
+}
+const list = (value: string | undefined, fallback: string) =>
+  (value ?? fallback)
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+const OPENAI_DEFAULT_BASE = "https://openrouter.ai/api/v1";
+// For the minutes when Google is turning requests away: a cheap paid multimodal model on
+// OpenRouter first (free ones are rate-limited most of the day), then a free one as a last resort.
+const SPARE_MODELS = "qwen/qwen3.7-flash,google/gemma-4-31b-it:free";
+
 /**
- * Picks the configured provider. Gemini is the default when GEMINI_API_KEY is set;
- * VISION_PROVIDER=openai uses any OpenAI-compatible endpoint with a vision model.
+ * Picks the configured provider. Gemini is the default when GEMINI_API_KEY is set, with its own
+ * fallback models for busy spells and, when LLM_* credentials exist, OpenAI-compatible spare
+ * models behind it. VISION_PROVIDER=openai uses any OpenAI-compatible endpoint with a vision model.
  */
 export function visionProvider(
   env: Record<string, string | undefined> = process.env,
 ): VisionProvider | null {
   const choice = env.VISION_PROVIDER || "gemini";
-  if (choice === "gemini" && env.GEMINI_API_KEY)
-    return gemini(
-      env.GEMINI_API_KEY,
-      env.GEMINI_MODEL || "gemini-3.5-flash-lite",
-    );
-  const key = env.VISION_API_KEY || env.LLM_API_KEY;
+  const key = env.VISION_API_KEY || env.LLM_API_KEY,
+    base = env.VISION_BASE_URL || env.LLM_BASE_URL || OPENAI_DEFAULT_BASE;
+  if (choice === "gemini" && env.GEMINI_API_KEY) {
+    const model = env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+    // GEMINI_FALLBACK_MODELS: Gemini models to try when the main one is overloaded.
+    const fallbacks = list(
+      env.GEMINI_FALLBACK_MODELS,
+      "gemini-3.1-flash-lite",
+    ).filter((m) => m !== model);
+    // VISION_FALLBACK_MODELS: OpenAI-compatible models on LLM_BASE_URL to try when Gemini fails.
+    const spares = key
+      ? list(env.VISION_FALLBACK_MODELS, SPARE_MODELS).map((m) =>
+          openai(base, key, m),
+        )
+      : [];
+    return withSpares(gemini(env.GEMINI_API_KEY, model, fallbacks), spares);
+  }
   if (choice === "openai" && key && env.VISION_MODEL)
-    return openai(
-      env.VISION_BASE_URL || env.LLM_BASE_URL || "https://openrouter.ai/api/v1",
-      key,
-      env.VISION_MODEL,
-    );
+    return openai(base, key, env.VISION_MODEL);
   return null;
 }

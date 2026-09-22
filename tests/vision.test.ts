@@ -27,6 +27,17 @@ describe("vision providers", () => {
       id: "gemini",
       label: "Google Gemini API（gemini-3.5-flash-lite）",
     });
+    // With an LLM key, OpenRouter's free multimodal models stand behind Gemini.
+    expect(
+      visionProvider({ GEMINI_API_KEY: "k", LLM_API_KEY: "o" })?.label,
+    ).toBe("Google Gemini API（gemini-3.5-flash-lite），忙时改用 openrouter.ai");
+    expect(
+      visionProvider({
+        GEMINI_API_KEY: "k",
+        LLM_API_KEY: "o",
+        VISION_FALLBACK_MODELS: "",
+      })?.label,
+    ).toBe("Google Gemini API（gemini-3.5-flash-lite）");
     expect(
       visionProvider({ VISION_PROVIDER: "openai", LLM_API_KEY: "k" }),
     ).toBeNull();
@@ -92,6 +103,64 @@ describe("vision providers", () => {
         bad(JSON.stringify({ ...verdict, category: "gaming" })),
       ),
     ).rejects.toThrow();
+  });
+  it("retries once when Gemini is busy, then tries the fallback models in order", async () => {
+    const good = {
+      candidates: [{ content: { parts: [{ text: JSON.stringify(verdict) }] } }],
+    };
+    const busy = { error: { code: 503, status: "UNAVAILABLE" } };
+    const sequence = (replies: [unknown, number][]) => {
+      const calls: string[] = [];
+      const fetcher = (async (url: string) => {
+        calls.push(url.split("/models/")[1].split(":")[0]);
+        const [body, status] = replies[calls.length - 1] ?? [busy, 503];
+        return new Response(JSON.stringify(body), { status });
+      }) as unknown as typeof fetch;
+      return { calls, fetcher };
+    };
+    const provider = visionProvider({
+      GEMINI_API_KEY: "k",
+      GEMINI_MODEL: "main",
+      GEMINI_FALLBACK_MODELS: "spare-1, spare-2",
+    })!;
+    expect(provider.label).toBe("Google Gemini API（main）");
+    // Busy once, fine on the retry: no fallback needed.
+    const retry = sequence([[busy, 503], [good, 200]]);
+    expect(await provider.judge(frames, retry.fetcher)).toEqual(verdict);
+    expect(retry.calls).toEqual(["main", "main"]);
+    // Busy twice, then the second spare answers.
+    const spare = sequence([[busy, 503], [busy, 503], [busy, 429], [good, 200]]);
+    expect(await provider.judge(frames, spare.fetcher)).toEqual(verdict);
+    expect(spare.calls).toEqual(["main", "main", "spare-1", "spare-2"]);
+    // Everyone busy: the check is unavailable, and nothing else is tried.
+    const down = sequence([]);
+    await expect(provider.judge(frames, down.fetcher)).rejects.toThrow("503");
+    expect(down.calls).toEqual(["main", "main", "spare-1", "spare-2"]);
+    // Other failures are not retried.
+    const bad = sequence([[{ error: "bad key" }, 400]]);
+    await expect(provider.judge(frames, bad.fetcher)).rejects.toThrow("400");
+    expect(bad.calls).toEqual(["main"]);
+  });
+  it("hands the frames to a spare OpenAI-compatible model when Gemini fails outright", async () => {
+    const good = JSON.stringify(verdict);
+    const calls: string[] = [];
+    const fetcher = (async (url: string, init: RequestInit) => {
+      calls.push(url.includes("googleapis") ? "gemini" : JSON.parse(String(init.body)).model);
+      if (url.includes("googleapis"))
+        return new Response(JSON.stringify({ error: "down" }), { status: 503 });
+      if (calls.at(-1) === "spare-a") return new Response("", { status: 500 });
+      return Response.json({ choices: [{ message: { content: good } }] });
+    }) as unknown as typeof fetch;
+    const provider = visionProvider({
+      GEMINI_API_KEY: "k",
+      GEMINI_MODEL: "main",
+      GEMINI_FALLBACK_MODELS: "",
+      LLM_API_KEY: "o",
+      LLM_BASE_URL: "https://router.example/v1",
+      VISION_FALLBACK_MODELS: "spare-a, spare-b",
+    })!;
+    expect(await provider.judge(frames, fetcher)).toEqual(verdict);
+    expect(calls).toEqual(["gemini", "gemini", "spare-a", "spare-b"]);
   });
   it("speaks the OpenAI-compatible format with data-URL images", async () => {
     const { calls, fetcher } = fake({
