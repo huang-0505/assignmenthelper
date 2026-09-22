@@ -18,11 +18,25 @@ export type Project = {
   methods: string;
   metrics: string;
 };
+/** Which daily tasks the streak needs. The others only earn points. */
+export type CoreTasks = {
+  applications: boolean;
+  contacts: boolean;
+  interview: boolean;
+  bq: boolean;
+  episodes: boolean;
+};
+export type TaskKey = keyof CoreTasks;
 export type Settings = {
   timezone: "America/New_York";
   closeHour: number;
   applications: number;
   contacts: number;
+  /** Missing on snapshots from before the split, when every task was required. */
+  core?: CoreTasks;
+  /** Weekly outreach targets; reaching one earns bonusPoints once that week. 0 = none. */
+  weeklyApplications?: number;
+  weeklyContacts?: number;
   /** English listening: watch exactly this many TV episodes a day. 0 or missing = not required. */
   episodes?: number;
   bonusApplications: number;

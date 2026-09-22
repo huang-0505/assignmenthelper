@@ -26,6 +26,7 @@ import {
   addDays,
   bqDone,
   completedBq,
+  coreOf,
   episodesDone,
   finalScore,
   latestAnswer,
@@ -39,6 +40,7 @@ import type {
   Project,
   Question,
   Settings,
+  TaskKey,
 } from "@/lib/types";
 import { toast } from "sonner";
 import {
@@ -1100,7 +1102,8 @@ function TodayLive({ open }: { open: (date: string) => void }) {
     s = day.settings,
     answer = latestAnswer(day),
     score = finalScore(answer),
-    watched = day.episodes ?? 0;
+    watched = day.episodes ?? 0,
+    core = coreOf(s);
   const left = Math.max(
     0,
     Math.round((Date.parse(day.closesAt) - Date.parse(serverTime)) / 60000),
@@ -1110,11 +1113,13 @@ function TodayLive({ open }: { open: (date: string) => void }) {
       label: "投递申请",
       value: `${day.applications} / ${s.applications} 份`,
       done: day.applications >= s.applications,
+      core: core.applications,
     },
     {
       label: "联系新朋友",
       value: `${day.contacts} / ${s.contacts} 人`,
       done: day.contacts >= s.contacts,
+      core: core.contacts,
     },
     {
       label: `面试题 · ${day.question?.category ?? "项目深挖"}`,
@@ -1124,6 +1129,7 @@ function TodayLive({ open }: { open: (date: string) => void }) {
           ? "等你评审"
           : `${score} / 5 分`,
       done: (score ?? 0) >= 3,
+      core: core.interview,
     },
     ...(day.bq
       ? [
@@ -1131,6 +1137,7 @@ function TodayLive({ open }: { open: (date: string) => void }) {
             label: `BQ ${day.bq.questionId.split("-")[1]} / 12 · ${day.bq.stage === 1 ? "STAR 草稿" : "口述练习"}`,
             value: bqDone(day.bq) ? "已完成" : "未完成",
             done: bqDone(day.bq),
+            core: core.bq,
           },
         ]
       : []),
@@ -1138,8 +1145,9 @@ function TodayLive({ open }: { open: (date: string) => void }) {
       ? [
           {
             label: "英语看剧",
-            value: `${watched} / ${s.episodes} 集${watched > s.episodes ? "（超了）" : ""}`,
+            value: `${watched} / ${s.episodes} 集`,
             done: episodesDone(day),
+            core: core.episodes,
           },
         ]
       : []),
@@ -1162,7 +1170,10 @@ function TodayLive({ open }: { open: (date: string) => void }) {
             ) : (
               <span className="todo-dot" aria-label="未完成" />
             )}
-            <span>{t.label}</span>
+            <span>
+              {t.label}
+              {!t.core && <small className="bonus-tag">加分</small>}
+            </span>
             <strong>{t.value}</strong>
           </div>
         ))}
@@ -1547,6 +1558,13 @@ function PlayerNameForm({
     </form>
   );
 }
+const CORE_TASKS: [TaskKey, string][] = [
+  ["interview", "每日面试题"],
+  ["bq", "BQ 故事"],
+  ["episodes", "英语看剧"],
+  ["applications", "投递申请"],
+  ["contacts", "联系新朋友"],
+];
 function SettingsForm({
   settings,
   pending,
@@ -1565,8 +1583,20 @@ function SettingsForm({
     min: number;
     max: number;
   }[] = [
-    { key: "applications", label: "每日申请最低份数", min: 1, max: 100 },
-    { key: "contacts", label: "每日联系最低人数", min: 1, max: 1000 },
+    { key: "applications", label: "每日申请份数", min: 1, max: 100 },
+    { key: "contacts", label: "每日联系人数", min: 1, max: 1000 },
+    {
+      key: "weeklyApplications",
+      label: "每周申请目标（份，0 为不设）",
+      min: 0,
+      max: 1000,
+    },
+    {
+      key: "weeklyContacts",
+      label: "每周联系目标（人，0 为不设）",
+      min: 0,
+      max: 10000,
+    },
     {
       key: "episodes",
       label: "每天看剧集数（至少，0 为不要求）",
@@ -1610,6 +1640,9 @@ function SettingsForm({
             (s as unknown as Record<string, unknown>)[field.key] = Number(
               form.get(field.key),
             );
+          s.core = Object.fromEntries(
+            CORE_TASKS.map(([key]) => [key, form.get(`core-${key}`) === "on"]),
+          ) as Settings["core"] & object;
           s.study = {
             ...(Object.fromEntries(
               [...STUDY_FIELDS, ...STUDY_DETECTION].map((f) => [
@@ -1625,7 +1658,7 @@ function SettingsForm({
         <section className="white-panel">
           <SectionHeading
             title="每天的小目标"
-            note="最低目标需全部完成。两项超额目标各获得一次加分。"
+            note="计入连胜的任务当天必须全部完成；其余任务只加分。两项超额目标各加一次分，每周目标达成再加一次。"
           />
           <div className="settings-fields">
             {numericFields.map((f) => (
@@ -1636,9 +1669,27 @@ function SettingsForm({
                   name={f.key}
                   min={f.min}
                   max={f.max}
-                  defaultValue={settings[f.key] as number}
+                  defaultValue={(settings[f.key] as number | undefined) ?? 0}
                   required
                 />
+              </label>
+            ))}
+          </div>
+        </section>
+        <section className="white-panel">
+          <SectionHeading
+            title="哪些任务计入连胜"
+            note="没勾的任务不影响当天是否达标，只按天和按周加分。投递和联系默认不计入：求职是按周看数量的事，一天没投不该断掉连胜。"
+          />
+          <div className="core-choices">
+            {CORE_TASKS.map(([key, label]) => (
+              <label key={key} className="checkbox-label">
+                <input
+                  type="checkbox"
+                  name={`core-${key}`}
+                  defaultChecked={coreOf(settings)[key]}
+                />{" "}
+                {label}
               </label>
             ))}
           </div>

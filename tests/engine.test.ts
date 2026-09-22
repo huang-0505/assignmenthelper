@@ -5,6 +5,7 @@ import {
   categoryFor,
   closeTime,
   completedBq,
+  coreOf,
   dayKey,
   DEFAULT_SETTINGS,
   evaluate,
@@ -16,7 +17,7 @@ import {
 } from "../src/lib/engine";
 import { applyAction, applyGrade, actionSchema } from "../src/lib/actions";
 import { DEFAULT_STUDY } from "../src/lib/study";
-import type { Day, GameState, Question } from "../src/lib/types";
+import type { Day, GameState, Question, Settings } from "../src/lib/types";
 import data from "../data/questions.json";
 const bank = data as Question[];
 const noon = (date: string) => `${date}T16:00:00Z`;
@@ -69,6 +70,9 @@ describe("daily settlement", () => {
       const s = game(),
         d = s.days[s.startedOn];
       finish(d);
+      // Outreach only blocks the day once the referee makes it part of the streak.
+      if (field === "applications" || field === "contacts")
+        d.settings.core = { ...coreOf(d.settings), [field]: true };
       if (field === "applications") d.applications = 2;
       if (field === "contacts") d.contacts = 19;
       if (field === "interview") d.answers[0].grade.score = 2;
@@ -88,8 +92,38 @@ describe("daily settlement", () => {
     const s = game();
     finish(s.days[s.startedOn], true);
     s.days[s.startedOn].applications = 500;
-    expect(evaluate(s, noon(s.startedOn)).points).toBe(150);
+    // 100 base, one application bonus, and the week's application target reached at once.
+    expect(evaluate(s, noon(s.startedOn)).points).toBe(175);
     expect(evaluate(s, noon(s.startedOn)).days[0].status).toBe("gold");
+  });
+  it("counts outreach toward the week, not the streak, and pays each weekly target once", () => {
+    const s = game();
+    const first = s.days[s.startedOn];
+    finish(first);
+    first.applications = first.contacts = 0;
+    let r = evaluate(s, noon(s.startedOn));
+    expect(r.days[0]).toMatchObject({ status: "met", points: 100 });
+    expect(requirements(first)).toEqual({ completed: 3, required: 3, met: true });
+    first.applications = 15;
+    r = evaluate(s, noon(s.startedOn));
+    expect(r.days[0]).toMatchObject({ status: "gold", points: 150 });
+    // The next day adds more applications: the daily bonus again, the weekly one not.
+    const second = addDays(s.startedOn, 1);
+    advance(s, noon(second), bank);
+    finish(s.days[second]);
+    s.days[second].applications = 15;
+    expect(evaluate(s, noon(second)).days[1].points).toBe(125);
+    // A new week pays again, and a missed week never pays.
+    const monday = addDays(s.startedOn, 7);
+    advance(s, noon(monday), bank);
+    s.days[monday].applications = 15;
+    expect(evaluate(s, noon(monday)).days.at(-1)).toMatchObject({
+      status: "open",
+      points: 25,
+    });
+    // Old snapshots without the split still require everything.
+    delete first.settings.core;
+    expect(requirements(first)).toMatchObject({ required: 5, met: false });
   });
   it("consumes a freeze at exact midnight and keeps the prior streak", () => {
     const s = game();
@@ -184,7 +218,10 @@ describe("daily settlement", () => {
     expect(r.days[0].status).toBe("pending");
     expect(r.days[1].status).toBe("waiting");
     expect(r.pool).toBe(0);
+    // Outreach is not part of the streak by default, so it cannot decide the day either.
     day.contacts = 0;
+    expect(evaluate(s, noon("2026-09-17")).days[0].status).toBe("pending");
+    day.episodes = 0;
     expect(evaluate(s, noon("2026-09-17")).days[0].status).toBe("frozen");
   });
   it("a referee override replays the streak and penalties without duplicate effects", () => {
@@ -239,7 +276,7 @@ describe("daily settlement", () => {
         type: "settings",
         id: crypto.randomUUID(),
         settings: {
-          ...s.settings,
+          ...(s.settings as Required<Settings>),
           episodes: 1,
           study: DEFAULT_STUDY,
           applications: 8,
@@ -466,7 +503,11 @@ describe("validated mutations", () => {
         {
           type: "settings",
           id: crypto.randomUUID(),
-          settings: { ...s.settings, episodes: 1, study: DEFAULT_STUDY },
+          settings: {
+            ...(s.settings as Required<Settings>),
+            episodes: 1,
+            study: DEFAULT_STUDY,
+          },
         },
         "player",
         "p",
@@ -651,16 +692,18 @@ describe("English episode task", () => {
       [2, true],
     ] as const) {
       d.episodes = watched;
-      expect(requirements(d)).toMatchObject({ met, required: 5 });
+      expect(requirements(d)).toMatchObject({ met, required: 3 });
     }
   });
   it("adds the task to older camps from the open day on, never retroactively", () => {
     const s = game();
     runDays(s, 2);
-    // A camp saved before the task existed has no episode fields at all.
+    // A camp saved before the task existed has no episode fields, and no core / bonus split.
     delete s.settings.episodes;
+    delete s.settings.core;
     for (const d of Object.values(s.days)) {
       delete d.settings.episodes;
+      delete d.settings.core;
       delete d.episodes;
     }
     const [closed, open] = [s.startedOn, addDays(s.startedOn, 1)];
@@ -668,7 +711,7 @@ describe("English episode task", () => {
     expect(s.settings.episodes).toBe(1);
     expect(s.days[open]).toMatchObject({
       episodes: 0,
-      settings: { episodes: 1 },
+      settings: { episodes: 1, core: { applications: false, interview: true } },
     });
     expect(s.days[closed].settings.episodes).toBeUndefined();
     expect(requirements(s.days[closed])).toMatchObject({

@@ -44,6 +44,15 @@ const settingsSchema = z
     closeHour: z.number().int().min(0).max(23),
     applications: z.number().int().min(1).max(100),
     contacts: z.number().int().min(1).max(1000),
+    core: z.object({
+      applications: z.boolean(),
+      contacts: z.boolean(),
+      interview: z.boolean(),
+      bq: z.boolean(),
+      episodes: z.boolean(),
+    }),
+    weeklyApplications: z.number().int().min(0).max(1000),
+    weeklyContacts: z.number().int().min(0).max(10000),
     episodes: z.number().int().min(0).max(5),
     bonusApplications: z.number().int().min(1).max(100),
     bonusContacts: z.number().int().min(1).max(1000),
@@ -73,6 +82,10 @@ const settingsSchema = z
   .refine(
     (s) => new Set(s.rewards.map((r) => r.streak)).size === s.rewards.length,
     "里程碑天数不能重复",
+  )
+  .refine(
+    (s) => Object.values(s.core).some(Boolean),
+    "至少要有一项任务计入连胜",
   );
 const id = z.string().uuid();
 const common = { id, date: z.iso.date() };

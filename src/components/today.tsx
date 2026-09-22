@@ -31,11 +31,14 @@ import {
   bqDone,
   categoryFor,
   completedBq,
+  coreOf,
+  dayTasks,
   episodesDone,
   finalScore,
   latestAnswer,
   requirements,
   weekKey,
+  weekTotals,
 } from "@/lib/engine";
 import type { Day, Question } from "@/lib/types";
 import data from "../../data/bq.json";
@@ -175,7 +178,11 @@ export function Today() {
           <section className="daily-section">
             <SectionHeading
               title="今日任务"
-              note="完成全部最低目标，点亮今天。"
+              note={
+                dayTasks(day).some((t) => !t.core)
+                  ? "完成计入连胜的任务，点亮今天。投递和联系按周累计加分。"
+                  : "完成全部最低目标，点亮今天。"
+              }
             >
               <span className="points-tag">
                 <Zap size={14} fill="currentColor" /> +{day.settings.basePoints}{" "}
@@ -419,9 +426,17 @@ function CountTask({
   day: Day;
 }) {
   const [open, setOpen] = useState(false),
-    { act, busy } = useGame();
+    { act, busy, snapshot } = useGame();
   const applications = kind === "application",
-    count = applications ? day.applications : day.contacts;
+    count = applications ? day.applications : day.contacts,
+    key = applications ? "applications" : "contacts",
+    core = coreOf(day.settings)[key],
+    weeklyTarget =
+      (applications
+        ? day.settings.weeklyApplications
+        : day.settings.weeklyContacts) ?? 0,
+    weekSum = weekTotals(snapshot.state, day.date)[key],
+    unit = applications ? "份" : "人";
   const minimum = applications
       ? day.settings.applications
       : day.settings.contacts,
@@ -441,6 +456,7 @@ function CountTask({
             <Icon size={21} />
           </span>
           <h3>{title}</h3>
+          {!core && <span className="bonus-tag">加分项</span>}
           {done && (
             <span className="check-badge" aria-label="已达标">
               <Check size={15} />
@@ -454,14 +470,22 @@ function CountTask({
           </span>
         </div>
         <Progress
-          value={(count / minimum) * 100}
-          label={title}
+          value={
+            !core && weeklyTarget
+              ? (weekSum / weeklyTarget) * 100
+              : (count / minimum) * 100
+          }
+          label={!core && weeklyTarget ? `${title}本周目标` : title}
           tone={applications ? "orange" : ""}
         />
         <p>
-          {done
-            ? "最低目标完成，继续可以加分"
-            : `再${applications ? "投递" : "联系"} ${minimum - count} ${applications ? "份" : "人"}，就能点亮这项任务`}
+          {!core && weeklyTarget
+            ? weekSum >= weeklyTarget
+              ? `本周目标 ${weeklyTarget} ${unit}已达成，+${day.settings.bonusPoints} 已入账`
+              : `本周 ${weekSum} / ${weeklyTarget} ${unit}，达成 +${day.settings.bonusPoints}`
+            : done
+              ? "最低目标完成，继续可以加分"
+              : `再${applications ? "投递" : "联系"} ${minimum - count} ${unit}，就能点亮这项任务`}
         </p>
         <div className="count-task-footer">
           <span>

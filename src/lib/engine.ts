@@ -4,19 +4,42 @@ import type {
   Answer,
   BqTask,
   Category,
+  CoreTasks,
   Day,
   GameState,
   Project,
   Question,
   Settings,
   Summary,
+  TaskKey,
 } from "./types";
 
+/** Outreach is a numbers game that runs on a weekly rhythm; the streak asks for the study tasks. */
+export const DEFAULT_CORE: CoreTasks = {
+  applications: false,
+  contacts: false,
+  interview: true,
+  bq: true,
+  episodes: true,
+};
+const ALL_CORE: CoreTasks = {
+  applications: true,
+  contacts: true,
+  interview: true,
+  bq: true,
+  episodes: true,
+};
+/** Snapshots from before the split required every task. */
+export const coreOf = (settings: Settings): CoreTasks =>
+  settings.core ?? ALL_CORE;
 export const DEFAULT_SETTINGS: Settings = {
   timezone: "America/New_York",
   closeHour: 0,
   applications: 3,
   contacts: 20,
+  core: DEFAULT_CORE,
+  weeklyApplications: 15,
+  weeklyContacts: 100,
   episodes: 1,
   bonusApplications: 5,
   bonusContacts: 30,
@@ -315,6 +338,19 @@ export function advance(
     if (Temporal.Instant.compare(now, day.closesAt) < 0)
       day.settings.study = structuredClone(DEFAULT_STUDY);
   }
+  // The core / bonus split arrives the same way: from the day still open, never retroactively.
+  if (state.settings.core === undefined) {
+    const split = {
+      core: structuredClone(DEFAULT_CORE),
+      weeklyApplications: DEFAULT_SETTINGS.weeklyApplications,
+      weeklyContacts: DEFAULT_SETTINGS.weeklyContacts,
+    };
+    Object.assign(state.settings, split);
+    if (state.nextSettings && state.nextSettings.core === undefined)
+      Object.assign(state.nextSettings, structuredClone(split));
+    if (Temporal.Instant.compare(now, day.closesAt) < 0)
+      Object.assign(day.settings, structuredClone(split));
+  }
   let count = 0;
   while (Temporal.Instant.compare(now, day.closesAt) >= 0) {
     if (++count > 3660) throw new Error("超过十年的数据需要管理员迁移");
@@ -341,20 +377,40 @@ export function episodesDone(day: Day) {
   const target = day.settings.episodes ?? 0;
   return !target || (day.episodes ?? 0) >= target;
 }
-export function requirements(day: Day) {
-  const s = day.settings;
-  const checks = [
-    day.applications >= s.applications,
-    day.contacts >= s.contacts,
-    (finalScore(latestAnswer(day)) ?? 0) >= 3,
+/** Every task the day has, with whether it is done and whether the streak needs it. */
+export function dayTasks(day: Day): { key: TaskKey; done: boolean; core: boolean }[] {
+  const s = day.settings,
+    core = coreOf(s);
+  const tasks: { key: TaskKey; done: boolean }[] = [
+    { key: "applications", done: day.applications >= s.applications },
+    { key: "contacts", done: day.contacts >= s.contacts },
+    { key: "interview", done: (finalScore(latestAnswer(day)) ?? 0) >= 3 },
   ];
-  if (day.bq) checks.push(bqDone(day.bq));
-  if (s.episodes) checks.push(episodesDone(day));
+  if (day.bq) tasks.push({ key: "bq", done: bqDone(day.bq) });
+  if (s.episodes) tasks.push({ key: "episodes", done: episodesDone(day) });
+  return tasks.map((t) => ({ ...t, core: core[t.key] }));
+}
+export function requirements(day: Day) {
+  const checks = dayTasks(day)
+    .filter((t) => t.core)
+    .map((t) => t.done);
   return {
     completed: checks.filter(Boolean).length,
     required: checks.length,
     met: checks.every(Boolean),
   };
+}
+/** Outreach so far this week up to and including `date`. */
+export function weekTotals(state: GameState, date: string) {
+  const week = weekKey(date);
+  let applications = 0,
+    contacts = 0;
+  for (const d of Object.values(state.days))
+    if (d.date <= date && weekKey(d.date) === week) {
+      applications += d.applications;
+      contacts += d.contacts;
+    }
+  return { applications, contacts };
 }
 export function evaluate(
   state: GameState,
@@ -374,10 +430,12 @@ export function evaluate(
   const rewards: Summary["rewards"] = [],
     days: Summary["days"] = [];
   const retellWeeks = new Set<string>();
+  // Weekly outreach targets pay once, on the day the week's total reaches them.
+  const week = { applications: 0, contacts: 0, paid: new Set<string>() };
   for (const day of Object.values(state.days).sort((a, b) =>
     a.date.localeCompare(b.date),
   )) {
-    const week = weekKey(day.date),
+    const weekOf = weekKey(day.date),
       closed = Temporal.Instant.compare(now, day.closesAt) >= 0;
     const req = requirements(day),
       answer = latestAnswer(day),
@@ -391,26 +449,40 @@ export function evaluate(
       penalty = 0;
     if (blocked) status = "waiting";
     else {
-      if (week !== lastWeek) {
+      if (weekOf !== lastWeek) {
         freezes = Math.min(2, freezes + 1);
-        lastWeek = week;
+        lastWeek = weekOf;
+        week.applications = week.contacts = 0;
+        week.paid.clear();
       }
+      week.applications += day.applications;
+      week.contacts += day.contacts;
+      let weekly = 0;
+      for (const [key, target] of [
+        ["applications", day.settings.weeklyApplications ?? 0],
+        ["contacts", day.settings.weeklyContacts ?? 0],
+      ] as const)
+        if (target > 0 && week[key] >= target && !week.paid.has(key)) {
+          week.paid.add(key);
+          weekly += day.settings.bonusPoints;
+        }
+      earned = weekly;
       if (req.met) {
         const bonus =
           Number(day.applications >= day.settings.bonusApplications) +
           Number(day.contacts >= day.settings.bonusContacts);
         const retell =
           day.retell?.practiced &&
-          !retellWeeks.has(week) &&
+          !retellWeeks.has(weekOf) &&
           completedBq(state, day.date).size === 12 &&
           [...completedBq(state, day.date).values()].every((p) => p.practice);
-        if (retell) retellWeeks.add(week);
+        if (retell) retellWeeks.add(weekOf);
         // A passed study session is a bonus like the others: once per day, only on a met day.
-        earned =
+        earned +=
           day.settings.basePoints +
           (bonus + Number(Boolean(retell))) * day.settings.bonusPoints +
           (studied?.points ?? 0);
-        status = bonus || retell || studied ? "gold" : "met";
+        status = bonus || retell || studied || weekly ? "gold" : "met";
         streak += 1;
         for (const reward of day.settings.rewards) {
           if (
@@ -425,11 +497,9 @@ export function evaluate(
         }
       } else if (closed) {
         // Only defer a penalty when a review can actually change this day's outcome.
-        const otherMet =
-          day.applications >= day.settings.applications &&
-          day.contacts >= day.settings.contacts &&
-          bqDone(day.bq) &&
-          episodesDone(day);
+        const otherMet = dayTasks(day)
+          .filter((t) => t.core && t.key !== "interview")
+          .every((t) => t.done);
         if (answer && finalScore(answer) === null && otherMet) {
           status = "pending";
           blocked = true;
