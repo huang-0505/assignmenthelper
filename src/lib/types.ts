@@ -88,6 +88,8 @@ export type Day = {
     company: string;
     link: string;
     at: string;
+    /** She pasted the job description; the text itself lives in private storage. */
+    jd?: { at: string; chars: number };
   }[];
   question: Question | null;
   /** Set when today's question is a weak answer from that earlier day, back for a second try. */

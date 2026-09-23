@@ -5395,6 +5395,42 @@ body {
   margin-top: 10px;
 }
 
+/* The job description she saved with an application. */
+.jd-button {
+  min-height: 28px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+.recent-logs .jd-button {
+  margin-left: 8px;
+}
+.jd-modal {
+  width: min(680px, calc(100vw - 24px));
+}
+.jd-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 750;
+}
+.jd-text {
+  max-height: min(60vh, 520px);
+  margin: 0;
+  padding: 14px 16px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Putting the door on the desktop, from the running session. */
 .desk-door {
   display: flex;

@@ -9,6 +9,7 @@ import {
   isDemo,
   member,
 } from "@/lib/server/supabase";
+import { putJd, removeJd } from "@/lib/server/docs";
 import { snapshot, transact } from "@/lib/server/repository";
 import { loadOutcomes } from "@/lib/server/study";
 export const maxDuration = 60;
@@ -28,6 +29,9 @@ export async function POST(request: Request) {
     const action = parsed.data,
       now = new Date().toISOString(),
       study = await loadOutcomes(now);
+    // The job description goes to storage first: a failure there must not leave a half-saved log.
+    if (action.type === "log" && action.jd && user.role === "player")
+      await putJd(action.id, action.jd);
     let freshAnswer = false;
     let state = await transact((s) => {
       member(s, user);
@@ -44,6 +48,8 @@ export async function POST(request: Request) {
         applyGrade(s, action.date, action.id, grade),
       );
     }
+    // A removed log takes its description with it.
+    if (action.type === "removeLog") await removeJd(action.logId);
     const finalNow = new Date().toISOString();
     return Response.json(snapshot(state, member(state, user), finalNow, study));
   } catch (error) {

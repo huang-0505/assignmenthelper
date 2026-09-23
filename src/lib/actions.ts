@@ -122,6 +122,8 @@ export const actionSchema = z.discriminatedUnion("type", [
         .max(1000)
         .refine((v) => /^https?:\/\//.test(v), "仅支持 http 或 https 链接"),
     ]),
+    /** The pasted job description. The route stores the text; the day keeps only its size. */
+    jd: z.string().trim().max(12000, "职位描述最多 12000 个字符").optional(),
   }),
   z.object({ ...common, type: z.literal("removeLog"), logId: id }),
   z.object({
@@ -245,6 +247,7 @@ export function applyAction(
         company: action.company,
         link: action.link,
         at: now,
+        ...(action.jd && { jd: { at: now, chars: action.jd.length } }),
       });
       day[field] += action.count;
       break;

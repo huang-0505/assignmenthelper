@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { WeeklyPlanEditor } from "./weekly-plan";
+import { JdButton } from "./job-description";
 import { useState } from "react";
 import {
   Activity,
@@ -363,6 +364,7 @@ export function DayDetail({
                   查看链接
                 </a>
               )}
+              {l.jd && <JdButton logId={l.id} label="看 JD" />}
             </div>
           ))}
         </div>
@@ -1207,6 +1209,7 @@ function TodayLive({ open }: { open: (date: string) => void }) {
                   查看链接
                 </a>
               )}
+              {l.jd && <JdButton logId={l.id} label="看 JD" />}
             </div>
           ))}
         </div>

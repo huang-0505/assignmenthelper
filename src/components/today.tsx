@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { JobSearchLink, NetworkingLink } from "./networking-link";
+import { JdButton } from "./job-description";
 import { WeeklyPlanCard } from "./weekly-plan";
 import { InterviewWorkspace } from "./interview-workspace";
 import { useRef, useState } from "react";
@@ -511,6 +512,7 @@ function CountTask({
             onSubmit={async (e) => {
               e.preventDefault();
               const form = new FormData(e.currentTarget);
+              const jd = String(form.get("jd") || "").trim();
               if (
                 await act({
                   type: "log",
@@ -519,6 +521,7 @@ function CountTask({
                   count: Number(form.get("count")),
                   company: String(form.get("company") || ""),
                   link: String(form.get("link") || ""),
+                  ...(applications && jd && { jd }),
                 })
               )
                 setOpen(false);
@@ -557,6 +560,17 @@ function CountTask({
                 maxLength={1000}
               />
             </label>
+            {applications && snapshot.mode !== "demo" && (
+              <label>
+                职位描述（JD） <span className="optional">可选</span>
+                <textarea
+                  name="jd"
+                  rows={5}
+                  maxLength={12000}
+                  placeholder="把 JD 粘贴进来。面试前可以再看一遍，也方便裁判帮你准备。"
+                />
+              </label>
+            )}
             <button className="button primary full" disabled={busy}>
               保存记录
             </button>
@@ -580,6 +594,7 @@ function CountTask({
                           <ArrowUpRight size={15} />
                         </a>
                       )}
+                      {log.jd && <JdButton logId={log.id} />}
                     </span>
                     <button
                       className="icon-button"
