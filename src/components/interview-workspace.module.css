@@ -1,0 +1,61 @@
+.container {
+  container-type: inline-size;
+  margin-top: 18px;
+}
+
+.workspace {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+
+.answer {
+  min-width: 0;
+}
+
+.answer :global(.answer-label) {
+  min-height: 28px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.answer textarea {
+  display: block;
+  height: 210px;
+  min-height: 180px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.7;
+  tab-size: 2;
+}
+
+.answer :global(.answer-footer) {
+  flex-wrap: wrap;
+}
+
+.answer :global(.rubric-toggle) {
+  margin: 6px 0 0;
+}
+
+.answer :global(.rubric-list) {
+  margin-bottom: 0;
+}
+
+@container (min-width: 580px) {
+  .workspace {
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.15fr);
+    gap: 20px;
+  }
+
+  .answer textarea {
+    height: 300px;
+  }
+}
+
+@container (max-width: 579px) {
+  .workspace [role="tabpanel"] {
+    height: 180px;
+  }
+}

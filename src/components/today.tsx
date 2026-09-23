@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { JobSearchLink, NetworkingLink } from "./networking-link";
 import { WeeklyPlanCard } from "./weekly-plan";
-import { SqlSchema } from "./sql-schema";
+import { InterviewWorkspace } from "./interview-workspace";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -638,6 +638,25 @@ function Interview({ day }: { day: Day }) {
   const previous = day.retryOf
     ? latestAnswer(snapshot.state.days[day.retryOf])
     : undefined;
+  const hints = day.question && (
+    <>
+      <button
+        className="rubric-toggle"
+        aria-expanded={showRubric}
+        onClick={() => setShowRubric(!showRubric)}
+      >
+        <Lightbulb size={16} /> 思考提示{" "}
+        <ChevronDown size={14} className={showRubric ? "rotated" : ""} />
+      </button>
+      {showRubric && (
+        <ul className="rubric-list" lang="en">
+          {day.question.rubric.map((point) => (
+            <li key={point}>{point}</li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
   return (
     <section className={`interview-section ${done ? "task-complete" : ""}`}>
       <div className="interview-top">
@@ -707,69 +726,62 @@ function Interview({ day }: { day: Day }) {
               </p>
             </details>
           )}
-          {day.question.schema && <SqlSchema schema={day.question.schema} />}
-          <button
-            className="rubric-toggle"
-            aria-expanded={showRubric}
-            onClick={() => setShowRubric(!showRubric)}
-          >
-            <Lightbulb size={16} /> 思考提示{" "}
-            <ChevronDown size={14} className={showRubric ? "rotated" : ""} />
-          </button>
-          {showRubric && (
-            <ul className="rubric-list" lang="en">
-              {day.question.rubric.map((point) => (
-                <li key={point}>{point}</li>
-              ))}
-            </ul>
-          )}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void act({ type: "answer", date: day.date, text });
-            }}
-          >
-            <label className="answer-label" htmlFor="interview-answer">
-              你的回答<span>支持中文或英文作答</span>
-            </label>
-            <textarea
-              id="interview-answer"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              minLength={20}
-              maxLength={16000}
-              rows={7}
-              placeholder="Start with your approach, then explain the why…&#10;写下你的思路、权衡和例子。"
-              required
-            />
-            <div className="answer-footer">
-              <span>
-                <LockKeyhole size={12} /> 草稿保存在本机{" "}
-                <small>{text.length} / 16000</small>
-              </span>
-              <button
-                className="button primary"
-                disabled={
-                  busy ||
-                  pending ||
-                  day.answers.length >= 5 ||
-                  text.trim().length < 20
+          <InterviewWorkspace schema={day.question.schema}>
+            {!day.question.schema && hints}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void act({ type: "answer", date: day.date, text });
+              }}
+            >
+              <label className="answer-label" htmlFor="interview-answer">
+                你的回答<span>支持中文或英文作答</span>
+              </label>
+              <textarea
+                id="interview-answer"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                minLength={20}
+                maxLength={16000}
+                rows={7}
+                spellCheck={day.question.category === "SQL" ? false : undefined}
+                placeholder={
+                  day.question.category === "SQL"
+                    ? "在这里写 SQL 查询…\n再补充你的思路与边界情况。"
+                    : "Start with your approach, then explain the why…\n写下你的思路、权衡和例子。"
                 }
-              >
-                <Sparkles size={16} />
-                {busy
-                  ? "正在保存与评审…"
-                  : pending
-                    ? "等待裁判审核"
-                    : answer
-                      ? "提交修改后的回答"
-                      : "提交 AI 评审"}
-              </button>
-            </div>
-            <p className="grading-note">
-              3 / 5 分即达标 · 每天最多 5 次提交 · AI 暂不可用时由裁判审核
-            </p>
-          </form>
+                required
+              />
+              <div className="answer-footer">
+                <span>
+                  <LockKeyhole size={12} /> 草稿保存在本机{" "}
+                  <small>{text.length} / 16000</small>
+                </span>
+                <button
+                  className="button primary"
+                  disabled={
+                    busy ||
+                    pending ||
+                    day.answers.length >= 5 ||
+                    text.trim().length < 20
+                  }
+                >
+                  <Sparkles size={16} />
+                  {busy
+                    ? "正在保存与评审…"
+                    : pending
+                      ? "等待裁判审核"
+                      : answer
+                        ? "提交修改后的回答"
+                        : "提交 AI 评审"}
+                </button>
+              </div>
+              <p className="grading-note">
+                3 / 5 分即达标 · 每天最多 5 次提交 · AI 暂不可用时由裁判审核
+              </p>
+            </form>
+            {day.question.schema && hints}
+          </InterviewWorkspace>
           {answer && (
             <div
               className={`feedback ${pending ? "pending" : done ? "passed" : "revise"}`}

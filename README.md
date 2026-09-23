@@ -170,7 +170,7 @@ tests/                        Vitest + PGlite 集成测试
 DESIGN.md                     配色、字体、布局和动效说明
 ```
 
-题库共 112 道原创题：40 ML、30 AI/LLM、20 SQL、10 Python/pandas、12 BQ。每题包含 ID、难度、英文题干和 3–6 条 rubric；SQL 另有 schema 和参考查询。`data/questions.json` 是运行时版本化题库，`question_bank` 表是其可检查的数据库镜像。编辑生成源后运行 `npm run seed:generate`，重新执行 seed 并部署应用；只改数据库镜像不会改变已部署题库。
+题库共 112 道原创题：40 ML、30 AI/LLM、20 SQL、10 Python/pandas、12 BQ。每题包含 ID、难度、英文题干和 3–6 条 rubric；SQL 另有 schema 和参考查询：做 SQL 题时，题干下面是一个查阅区，左边按标签切换四张数据表和答题约定（字段带中文说明、主键和外键关系），右边就是答题框，桌面端并排、手机端表格收进下拉框并可独立滚动，切换表格不会丢草稿、也不会让答题框跳动。`data/questions.json` 是运行时版本化题库，`question_bank` 表是其可检查的数据库镜像。编辑生成源后运行 `npm run seed:generate`，重新执行 seed 并部署应用；只改数据库镜像不会改变已部署题库。
 
 为保持双人应用简单，Postgres 使用一个 `game_state` JSONB 聚合行，内含项目、每天的快照、答案、审核与兑换记录。每次写入通过 `commit_game(expected_revision, next_state)` 原子比较版本；冲突重读重算，最多八次。每个动作带 UUID 去重，重复调用、并行请求或反复读取不会重复加分或扣罚。它适合本项目的一对玩家 / 裁判，不是多租户产品。
 

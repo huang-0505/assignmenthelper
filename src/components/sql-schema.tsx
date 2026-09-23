@@ -1,4 +1,7 @@
-import { ChevronDown, Database, Link2, Table2 } from "lucide-react";
+"use client";
+
+import { useId, useRef, useState } from "react";
+import { Database, Link2 } from "lucide-react";
 import styles from "./sql-schema.module.css";
 
 const tableLabels: Record<string, string> = {
@@ -66,58 +69,102 @@ function readSchema(schema: string) {
 
 export function SqlSchema({ schema }: { schema: string }) {
   const { tables, notes } = readSchema(schema);
-  const accountTable = tables.find((table) => table.name === "accounts");
-  const relatedTables = accountTable?.fields.some(
-    (field) => field.name === "account_id" && field.primaryKey,
-  )
-    ? tables.filter(
-        (table) =>
-          table.name !== "accounts" &&
-          table.fields.some((field) => field.name === "account_id"),
-      )
-    : [];
+  const [active, setActive] = useState(0);
+  const id = useId();
+  const tabs = useRef<(HTMLButtonElement | null)[]>([]);
+  const panels = [
+    ...tables.map((table) => ({ label: table.name, table })),
+    ...(notes.length ? [{ label: "答题约定", table: null }] : []),
+  ];
+  const selected = Math.min(active, panels.length - 1);
+  const hasAccounts = tables.some(
+    (table) =>
+      table.name === "accounts" &&
+      table.fields.some(
+        (field) => field.name === "account_id" && field.primaryKey,
+      ),
+  );
 
   return (
-    <details className={styles.schema} open>
-      <summary className={styles.summary}>
-        <Database size={17} aria-hidden="true" />
-        <span>数据表结构</span>
-        {tables.length > 0 && (
-          <span className={styles.count}>{tables.length} 张表</span>
-        )}
-        <ChevronDown className={styles.chevron} size={16} aria-hidden="true" />
-      </summary>
-      <div className={styles.content}>
-        {relatedTables.length > 0 && (
-          <p className={styles.relationship}>
-            <Link2 size={16} aria-hidden="true" />
-            <span>
-              {relatedTables.map((table) => table.name).join("、")} 中的{" "}
-              <code>account_id</code> 对应 <code>accounts.account_id</code>。
-            </span>
-          </p>
-        )}
-        <div className={styles.grid}>
-          {tables.map((table) => (
-            <div className={styles.card} key={table.name}>
+    <section className={styles.schema} aria-label="SQL 数据参考">
+      <div className={styles.heading}>
+        <Database size={16} aria-hidden="true" />
+        <h4>数据表结构</h4>
+        <span>{tables.length} 张表</span>
+      </div>
+      <div className={styles.mobileSelect}>
+        <select
+          aria-label="选择数据表或答题约定"
+          value={selected}
+          onChange={(event) => setActive(Number(event.target.value))}
+        >
+          {panels.map((panel, index) => (
+            <option key={panel.label} value={index}>
+              {panel.label}
+              {panel.table && tableLabels[panel.label]
+                ? ` · ${tableLabels[panel.label]}`
+                : ""}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div
+        className={styles.tabs}
+        role="tablist"
+        aria-label="选择数据表或答题约定"
+      >
+        {panels.map((panel, index) => (
+          <button
+            key={panel.label}
+            ref={(element) => {
+              tabs.current[index] = element;
+            }}
+            type="button"
+            role="tab"
+            id={`${id}-tab-${index}`}
+            aria-controls={`${id}-panel-${index}`}
+            aria-selected={selected === index}
+            tabIndex={selected === index ? 0 : -1}
+            onClick={() => setActive(index)}
+            onKeyDown={(event) => {
+              let next = index;
+              if (event.key === "ArrowRight")
+                next = (index + 1) % panels.length;
+              else if (event.key === "ArrowLeft")
+                next = (index - 1 + panels.length) % panels.length;
+              else if (event.key === "Home") next = 0;
+              else if (event.key === "End") next = panels.length - 1;
+              else return;
+              event.preventDefault();
+              setActive(next);
+              tabs.current[next]?.focus();
+            }}
+          >
+            {panel.label}
+          </button>
+        ))}
+      </div>
+      {panels.map(({ label, table }, index) => (
+        <div
+          key={label}
+          id={`${id}-panel-${index}`}
+          role="tabpanel"
+          aria-labelledby={`${id}-tab-${index}`}
+          className={styles.panel}
+          hidden={selected !== index}
+          tabIndex={0}
+        >
+          {table ? (
+            <>
               <table className={styles.table}>
                 <caption>
-                  <span className={styles.tableName}>
-                    <Table2 size={16} aria-hidden="true" />
-                    <code>{table.name}</code>
-                    <span>{tableLabels[table.name]}</span>
-                  </span>
-                  <span className={styles.fieldCount}>
-                    {table.fields.length} 个字段
-                  </span>
+                  <span>{tableLabels[table.name] || table.name}</span>
+                  <span>{table.fields.length} 个字段</span>
                 </caption>
                 <thead>
                   <tr>
-                    <th scope="col">
-                      字段<span className={styles.mobileLabel}> / 说明</span>
-                    </th>
+                    <th scope="col">字段 / 说明</th>
                     <th scope="col">类型</th>
-                    <th scope="col">说明</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -125,7 +172,7 @@ export function SqlSchema({ schema }: { schema: string }) {
                     <tr key={field.name}>
                       <th scope="row">
                         <code>{field.name}</code>
-                        <span className={styles.mobileDescription}>
+                        <span className={styles.description}>
                           {fieldLabels[field.name] || "—"}
                           {field.primaryKey && (
                             <span className={styles.key}>主键</span>
@@ -133,25 +180,26 @@ export function SqlSchema({ schema }: { schema: string }) {
                         </span>
                       </th>
                       <td>
-                        <code className={styles.type}>{field.type}</code>
-                      </td>
-                      <td>
-                        {fieldLabels[field.name] || "—"}
-                        {field.primaryKey && (
-                          <span className={styles.key}>主键</span>
-                        )}
+                        <code>{field.type}</code>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
-          ))}
-        </div>
-        {notes.length > 0 && (
-          <aside className={styles.rules} aria-label="答题约定">
-            <h4>答题约定</h4>
-            <ul>
+              {hasAccounts &&
+                table.name !== "accounts" &&
+                table.fields.some((field) => field.name === "account_id") && (
+                  <p className={styles.relationship}>
+                    <Link2 size={14} aria-hidden="true" />
+                    <span>
+                      <code>account_id</code> 对应{" "}
+                      <code>accounts.account_id</code>
+                    </span>
+                  </p>
+                )}
+            </>
+          ) : (
+            <ul className={styles.rules}>
               {notes
                 .flatMap((note) => note.split(/(?<=[.;])\s+/))
                 .map((rule, index) => (
@@ -160,9 +208,9 @@ export function SqlSchema({ schema }: { schema: string }) {
                   </li>
                 ))}
             </ul>
-          </aside>
-        )}
-      </div>
-    </details>
+          )}
+        </div>
+      ))}
+    </section>
   );
 }
