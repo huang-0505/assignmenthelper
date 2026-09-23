@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { JobSearchLink, NetworkingLink } from "./networking-link";
 import { WeeklyPlanCard } from "./weekly-plan";
+import { SqlSchema } from "./sql-schema";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -706,12 +707,7 @@ function Interview({ day }: { day: Day }) {
               </p>
             </details>
           )}
-          {day.question.schema && (
-            <details className="schema">
-              <summary>查看数据表结构</summary>
-              <pre lang="en">{day.question.schema}</pre>
-            </details>
-          )}
+          {day.question.schema && <SqlSchema schema={day.question.schema} />}
           <button
             className="rubric-toggle"
             aria-expanded={showRubric}
