@@ -128,6 +128,13 @@ export const actionSchema = z.discriminatedUnion("type", [
   z.object({ ...common, type: z.literal("removeLog"), logId: id }),
   z.object({
     ...common,
+    type: z.literal("jd"),
+    logId: id,
+    /** Empty removes the description. */
+    text: z.string().trim().max(12000, "职位描述最多 12000 个字符"),
+  }),
+  z.object({
+    ...common,
     type: z.literal("answer"),
     text: z.string().trim().min(20).max(16000),
   }),
@@ -221,7 +228,12 @@ export function applyAction(
     throw new Error("你的角色没有这项操作的权限");
   if (state.audit.some((a) => a.id === action.id)) return;
   const today = advance(state, now, bank);
-  if ("date" in action && action.type !== "override" && action.date !== today)
+  // A description can be added to an older application; it changes no day's outcome.
+  if (
+    "date" in action &&
+    !["override", "jd"].includes(action.type) &&
+    action.date !== today
+  )
     throw new Error("这一天已经结束，请刷新后记录今天的进度");
   const day = "date" in action ? state.days[action.date] : state.days[today];
   if (!day) throw new Error("找不到这一天的记录");
@@ -250,6 +262,13 @@ export function applyAction(
         ...(action.jd && { jd: { at: now, chars: action.jd.length } }),
       });
       day[field] += action.count;
+      break;
+    }
+    case "jd": {
+      const log = day.logs.find((l) => l.id === action.logId);
+      if (!log) throw new Error("找不到这条记录");
+      if (action.text) log.jd = { at: now, chars: action.text.length };
+      else delete log.jd;
       break;
     }
     case "removeLog": {
@@ -370,25 +389,27 @@ export function applyAction(
     action: action.type,
     date: "date" in action ? action.date : undefined,
     detail:
-      action.type === "weeklyPlan"
-        ? `发布了 ${action.plan.weekOf} 这一周的训练计划`
-        : action.type === "override"
-          ? `${action.score}/5: ${action.reason}`
-          : action.type === "settings"
-            ? "设置于下一训练日生效"
-            : action.type === "redeem"
-              ? "裁判确认已请客，清空已累计罚金"
-              : action.type === "playerName"
-                ? `玩家名字改为「${action.name}」`
-                : action.type === "episodes"
-                  ? `看剧 ${action.count} 集`
-                  : action.type === "coachLines"
-                    ? "修改了学习模式教练台词"
-                    : action.type === "coachNote"
-                      ? action.text
-                        ? `给她留言：${action.text}`
-                        : "清除了留言"
-                      : "已保存",
+      action.type === "jd"
+        ? `${action.text ? "保存" : "删除"}了一份职位描述`
+        : action.type === "weeklyPlan"
+          ? `发布了 ${action.plan.weekOf} 这一周的训练计划`
+          : action.type === "override"
+            ? `${action.score}/5: ${action.reason}`
+            : action.type === "settings"
+              ? "设置于下一训练日生效"
+              : action.type === "redeem"
+                ? "裁判确认已请客，清空已累计罚金"
+                : action.type === "playerName"
+                  ? `玩家名字改为「${action.name}」`
+                  : action.type === "episodes"
+                    ? `看剧 ${action.count} 集`
+                    : action.type === "coachLines"
+                      ? "修改了学习模式教练台词"
+                      : action.type === "coachNote"
+                        ? action.text
+                          ? `给她留言：${action.text}`
+                          : "清除了留言"
+                        : "已保存",
   });
 }
 

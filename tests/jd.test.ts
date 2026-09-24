@@ -215,6 +215,92 @@ describe("job descriptions saved with an application", () => {
     expect(env.files.has(`jd/${id}.txt`)).toBe(false);
     expect((await read(id)).status).toBe(404);
   });
+  it("attaches a description to an older application, replaces it, and clears it", async () => {
+    as(player);
+    const id = crypto.randomUUID();
+    await post({
+      type: "log",
+      id,
+      date: today(),
+      kind: "application",
+      count: 1,
+      company: "Healthfirst",
+      link: "",
+    });
+    const yesterday = today();
+    // The next day: the application is history, but its description can still be saved.
+    vi.setSystemTime(Date.parse("2026-09-24T15:00:00Z"));
+    const added = await post({
+      type: "jd",
+      id: crypto.randomUUID(),
+      date: yesterday,
+      logId: id,
+      text: JD,
+    });
+    expect(added.status).toBe(200);
+    expect(today()).not.toBe(yesterday);
+    const stored = (env.state as GameState).days[yesterday].logs[0];
+    expect(stored.jd).toMatchObject({ chars: JD.length });
+    expect((await (await read(id)).json()).text).toBe(JD);
+    expect((env.state as GameState).audit.at(-1)?.detail).toBe(
+      "保存了一份职位描述",
+    );
+
+    const replaced = "新的 JD：Senior Data Scientist, Experimentation.";
+    await post({
+      type: "jd",
+      id: crypto.randomUUID(),
+      date: yesterday,
+      logId: id,
+      text: replaced,
+    });
+    expect((await (await read(id)).json()).text).toBe(replaced);
+
+    await post({
+      type: "jd",
+      id: crypto.randomUUID(),
+      date: yesterday,
+      logId: id,
+      text: "",
+    });
+    expect((env.state as GameState).days[yesterday].logs[0].jd).toBeUndefined();
+    expect(env.files.size).toBe(0);
+    expect((await read(id)).status).toBe(404);
+  });
+  it("lets only the player write descriptions, and only onto a real record", async () => {
+    as(player);
+    const id = crypto.randomUUID();
+    await post({
+      type: "log",
+      id,
+      date: today(),
+      kind: "application",
+      count: 1,
+      company: "Notion",
+      link: "",
+    });
+    as(referee);
+    const denied = await post({
+      type: "jd",
+      id: crypto.randomUUID(),
+      date: today(),
+      logId: id,
+      text: JD,
+    });
+    // The pure action layer rejects it, which the route reports as a bad request.
+    expect(denied.status).toBe(400);
+    expect(denied.body.error).toContain("权限");
+    as(player);
+    const missing = await post({
+      type: "jd",
+      id: crypto.randomUUID(),
+      date: today(),
+      logId: crypto.randomUUID(),
+      text: JD,
+    });
+    expect(missing.status).toBe(400);
+    expect(missing.body.error).toContain("找不到");
+  });
   it("rejects a description longer than the limit", async () => {
     as(player);
     const tooLong = await post({

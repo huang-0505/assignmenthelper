@@ -5395,6 +5395,141 @@ body {
   margin-top: 10px;
 }
 
+/* Everything she has sent out, one day at a time. */
+.application-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.application-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+.application-search {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 220px;
+  font-weight: 500;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--muted);
+}
+.application-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: none;
+  font-size: 14px;
+}
+.application-search input:focus {
+  outline: none;
+}
+.application-search:focus-within {
+  border-color: var(--blue);
+}
+.application-days {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  list-style: none;
+}
+.application-days > li > h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.application-days > li > h3 small {
+  color: var(--blue);
+  font-weight: 750;
+}
+.application-days ul {
+  display: flex;
+  flex-direction: column;
+}
+.application-days ul li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 2px;
+  border-bottom: 1px solid #edf0f6;
+  font-size: 14px;
+}
+.application-days ul li:last-child {
+  border: 0;
+}
+.application-days time {
+  width: 46px;
+  flex-shrink: 0;
+  color: #5b6b84;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.application-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.application-name em {
+  font-style: normal;
+  color: var(--muted);
+}
+.application-name b {
+  margin-left: 8px;
+  color: var(--blue);
+  font-size: 12px;
+}
+.application-days a {
+  display: inline-flex;
+  color: var(--blue);
+}
+.jd-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.jd-tools a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 750;
+}
+.stack-form .jd-tools {
+  margin: 0;
+}
+.jd-modal textarea {
+  font-size: 14px;
+  line-height: 1.7;
+}
+@media (max-width: 760px) {
+  .application-days ul li {
+    flex-wrap: wrap;
+  }
+  .application-name {
+    flex: 1 1 100%;
+    order: -1;
+    white-space: normal;
+  }
+}
+
 /* The job description she saved with an application. */
 .jd-button {
   min-height: 28px;
@@ -5406,15 +5541,6 @@ body {
 }
 .jd-modal {
   width: min(680px, calc(100vw - 24px));
-}
-.jd-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 12px;
-  color: var(--blue);
-  font-size: 13px;
-  font-weight: 750;
 }
 .jd-text {
   max-height: min(60vh, 520px);

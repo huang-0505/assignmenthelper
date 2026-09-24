@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Briefcase,
   CalendarDays,
   ChartNoAxesCombined,
   Flag,
@@ -20,14 +21,17 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useGame } from "./provider";
 import { Modal } from "./ui";
 const study = { href: "/study", label: "学习模式", icon: Timer },
+  applications = { href: "/applications", label: "投递记录", icon: Briefcase },
   history = { href: "/history", label: "打卡日历", icon: CalendarDays },
   stats = { href: "/stats", label: "成长记录", icon: ChartNoAxesCombined },
   projects = { href: "/projects", label: "我的项目", icon: FolderOpen };
 const nav = [
   { href: "/", label: "今日挑战", icon: Sun },
   study,
+  applications,
   history,
   stats,
+  // The phone bar shows the first five; the project archive matters least there.
   projects,
 ];
 export function Shell({ children }: { children: ReactNode }) {
@@ -59,10 +63,10 @@ export function Shell({ children }: { children: ReactNode }) {
       ? [
           { href: "/referee", label: "裁判工作台", icon: ShieldCheck },
           study,
+          applications,
           history,
           stats,
           { href: "/settings", label: "挑战设置", icon: Settings2 },
-          // The phone bar shows the first five; projects matter least there.
           projects,
         ]
       : nav;

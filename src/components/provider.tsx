@@ -111,13 +111,17 @@ export function GameProvider({ children }: { children: ReactNode }) {
             ? "设置已保存，将于下一训练日生效"
             : input.type === "playerName"
               ? "玩家名字已更新，玩家需要用新名字重新进入"
-              : input.type === "coachLines"
-                ? "教练台词已保存"
-                : input.type === "coachNote"
-                  ? input.text
-                    ? "留言已放到她的今日页面"
-                    : "留言已清除"
-                  : "已保存，继续向前！",
+              : input.type === "jd"
+                ? input.text
+                  ? "JD 已保存"
+                  : "JD 已删除"
+                : input.type === "coachLines"
+                  ? "教练台词已保存"
+                  : input.type === "coachNote"
+                    ? input.text
+                      ? "留言已放到她的今日页面"
+                      : "留言已清除"
+                    : "已保存，继续向前！",
       );
       return true;
     } catch (error) {

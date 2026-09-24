@@ -30,8 +30,11 @@ export async function POST(request: Request) {
       now = new Date().toISOString(),
       study = await loadOutcomes(now);
     // The job description goes to storage first: a failure there must not leave a half-saved log.
-    if (action.type === "log" && action.jd && user.role === "player")
-      await putJd(action.id, action.jd);
+    if (user.role === "player") {
+      if (action.type === "log" && action.jd) await putJd(action.id, action.jd);
+      if (action.type === "jd" && action.text)
+        await putJd(action.logId, action.text);
+    }
     let freshAnswer = false;
     let state = await transact((s) => {
       member(s, user);
@@ -48,8 +51,9 @@ export async function POST(request: Request) {
         applyGrade(s, action.date, action.id, grade),
       );
     }
-    // A removed log takes its description with it.
-    if (action.type === "removeLog") await removeJd(action.logId);
+    // A removed log, or a cleared description, takes the stored text with it.
+    if (action.type === "removeLog" || (action.type === "jd" && !action.text))
+      await removeJd(action.logId);
     const finalNow = new Date().toISOString();
     return Response.json(snapshot(state, member(state, user), finalNow, study));
   } catch (error) {

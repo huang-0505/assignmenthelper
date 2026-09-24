@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { Applications } from "@/components/applications";
 import { GameProvider } from "@/components/provider";
 import { Shell } from "@/components/shell";
 import { Study } from "@/components/study";
@@ -19,6 +20,7 @@ export default async function Page({
   const key = view?.join("/") || "";
   const views = {
     "": Today,
+    applications: Applications,
     history: History,
     stats: Stats,
     projects: Projects,
