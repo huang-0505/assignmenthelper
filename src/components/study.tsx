@@ -66,6 +66,7 @@ import {
   type Detector,
 } from "@/lib/study-detector";
 import { knock, primeKnock } from "@/lib/sound";
+import { parseStudySetup, STUDY_SETUP_KEY } from "@/lib/study-preferences";
 import { useGame } from "./provider";
 import { Modal } from "./ui";
 import {
@@ -301,6 +302,9 @@ function PlayerStudy({
   const [sessionId, setSessionId] = useState(open?.id ?? null),
     [posterId, setPosterId] = useState<string | null>(null);
   const session = view.sessions.find((s) => s.id === sessionId) ?? null;
+  const [previousSetup] = useState(() =>
+    parseStudySetup(saved(STUDY_SETUP_KEY)),
+  );
   const [consent, setConsent] = useState(() => saved(KEYS.consent)),
     [consentOpen, setConsentOpen] = useState(false),
     // Every check starts on; a switch she turned off herself stays off.
@@ -309,13 +313,21 @@ function PlayerStudy({
     [share, setShare] = useState(() => saved(KEYS.share) !== "0"),
     [knockOn, setKnockOn] = useState(() => saved(KEYS.knock) !== "0"),
     [bigCam, setBigCam] = useState(() => saved(KEYS.selfView) === "big"),
-    [goal, setGoal] = useState(""),
-    [goals, setGoals] = useState<string[]>(["自由学习"]),
+    [goal, setGoal] = useState(previousSetup?.goal ?? ""),
+    [goals, setGoals] = useState<string[]>(
+      previousSetup?.goals ?? ["自由学习"],
+    ),
     [minutes, setMinutes] = useState(
-      minuteChoices().includes(view.rules.minutes as 20 | 30 | 45)
-        ? view.rules.minutes
-        : 30,
+      previousSetup?.minutes ??
+        (minuteChoices().includes(view.rules.minutes as 20 | 30 | 45)
+          ? view.rules.minutes
+          : 30),
     );
+  useEffect(() => {
+    // Keep the next setup; restoring a live session must never replace its rules or goal.
+    if (phase === "intro")
+      save(STUDY_SETUP_KEY, JSON.stringify({ goals, goal, minutes }));
+  }, [goals, goal, minutes, phase]);
   const combinedGoal = [...goals, goal.trim()].filter(Boolean).join("；");
   function toggleGoal(label: string) {
     const next = goals.includes(label)
@@ -433,7 +445,8 @@ function PlayerStudy({
   useEffect(() => () => pipRef.current?.close(), []);
   // The floating door stays through the running session and the summary, then goes.
   useEffect(() => {
-    if (!["running", "paused", "summary"].includes(phase)) pipRef.current?.close();
+    if (!["running", "paused", "summary"].includes(phase))
+      pipRef.current?.close();
   }, [phase]);
   async function openPip() {
     const api = pipApi();
@@ -456,7 +469,8 @@ function PlayerStudy({
     if (typeof Notification === "undefined") return;
     const answer = await Notification.requestPermission();
     setNotifyOn(answer === "granted");
-    if (answer !== "granted") toast("没有开启桌面提醒，可以在浏览器的网站设置里打开");
+    if (answer !== "granted")
+      toast("没有开启桌面提醒，可以在浏览器的网站设置里打开");
   }
 
   async function startCamera() {
@@ -1084,7 +1098,7 @@ function PlayerStudy({
             。重新开启摄像头继续；离开超过 3 分钟会被判定为中途离开。
           </p>
           <button className="button primary" onClick={() => void reconnect()}>
-            <Camera size={17} /> 重新开启摄像头
+            <Camera size={17} /> 继续本次学习
           </button>
         </section>
       )}
@@ -1278,7 +1292,11 @@ function Intro({
             placeholder="再补一句，比如：投两份岗位，再复盘项目（可选）"
             aria-label="补一句目标"
           />
-          <div className="chalk-row durations" role="radiogroup" aria-label="学多久">
+          <div
+            className="chalk-row durations"
+            role="radiogroup"
+            aria-label="学多久"
+          >
             <span className="chalk-label">学多久</span>
             {minuteChoices().map((m) => (
               <button
@@ -1305,6 +1323,9 @@ function Intro({
             </span>
             <span>教练会{gap(r)}来后门看看你</span>
           </div>
+          <p className="study-setup-memory">
+            目标和时长会记在这台设备上，下次打开接着用。
+          </p>
         </div>
         <div className="hero-door">
           <Door view={view} still="calm" />
@@ -1712,7 +1733,10 @@ function DeskDoor({
         )}
       </div>
     );
-  if (typeof Notification === "undefined" || Notification.permission === "denied")
+  if (
+    typeof Notification === "undefined" ||
+    Notification.permission === "denied"
+  )
     return null;
   return (
     <div className="desk-door">
@@ -1727,7 +1751,8 @@ function DeskDoor({
             <Bell size={16} /> 开启桌面提醒
           </button>
           <p>
-            这个浏览器不能把门放到桌面上（Chrome 和 Edge 可以）。开启后，你在别的页面时，裁判来开门或看到走神会弹出系统提醒。
+            这个浏览器不能把门放到桌面上（Chrome 和 Edge
+            可以）。开启后，你在别的页面时，裁判来开门或看到走神会弹出系统提醒。
           </p>
         </>
       )}
