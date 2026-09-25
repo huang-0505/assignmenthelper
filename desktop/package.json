@@ -1,0 +1,47 @@
+{
+  "name": "offer-quest-desktop",
+  "version": "0.2.0",
+  "description": "Offer Quest 的 Mac 桌面学习按钮",
+  "author": "Offer Quest",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --mac dir --arm64 --publish never",
+    "dist": "electron-builder --mac dmg --universal --publish never",
+    "test": "node --test policy.test.cjs"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "app.offerquest.study",
+    "productName": "开始学习",
+    "artifactName": "Offer-Quest-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "policy.cjs",
+      "offline.html",
+      "icon.png"
+    ],
+    "mac": {
+      "category": "public.app-category.education",
+      "icon": "icon.png",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "minimumSystemVersion": "12.0",
+      "extendInfo": {
+        "NSCameraUsageDescription": "学习时在本机判断你是否专注。仅在你点击开始学习后开启摄像头。",
+        "NSMicrophoneUsageDescription": "本应用不使用麦克风。"
+      }
+    },
+    "dmg": {
+      "title": "安装开始学习"
+    }
+  }
+}

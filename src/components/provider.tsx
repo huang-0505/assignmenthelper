@@ -11,6 +11,7 @@ import { toast, Toaster } from "sonner";
 import { actionSchema, type Action } from "@/lib/actions";
 import type { Snapshot } from "@/lib/types";
 import { Flag, LoaderCircle } from "lucide-react";
+import { desktopBridge } from "@/lib/desktop";
 
 type WithoutId<T> = T extends unknown ? Omit<T, "id"> : never;
 export type ActionInput = WithoutId<Action>;
@@ -35,6 +36,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
     [refereeKey, setRefereeKey] = useState<string | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (login || !snapshot) desktopBridge()?.setLayout("setup", false);
+  }, [login, snapshot]);
   const refresh = useCallback(async () => {
     try {
       const response = await fetch("/api/state", { cache: "no-store" });

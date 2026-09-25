@@ -28,6 +28,7 @@ import {
   Play,
   ShieldCheck,
   Smartphone,
+  Settings2,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -67,6 +68,7 @@ import {
 } from "@/lib/study-detector";
 import { knock, primeKnock } from "@/lib/sound";
 import { parseStudySetup, STUDY_SETUP_KEY } from "@/lib/study-preferences";
+import { desktopBridge } from "@/lib/desktop";
 import { useGame } from "./provider";
 import { Modal } from "./ui";
 import {
@@ -175,7 +177,7 @@ function cameraProblem(error: unknown) {
   return "本机检测模型加载失败。请检查网络后再试一次。";
 }
 
-export function Study() {
+export function Study({ desktop = false }: { desktop?: boolean }) {
   const { snapshot } = useGame();
   const [data, setData] = useState<Loaded | null>(null),
     [error, setError] = useState("");
@@ -222,19 +224,28 @@ export function Study() {
   );
   const now = useCallback(() => Date.now() + offset.current, []);
   return (
-    <div className="study">
-      <div className="page-title">
-        <div>
-          <p className="date-line">选好目标，让这段时间有收获</p>
-          <h1>
-            学习模式
-            <span className="title-dot" />
-          </h1>
+    <div className={`study${desktop ? " desktop-study" : ""}`}>
+      {!desktop && (
+        <div className="page-title">
+          <div>
+            <p className="date-line">选好目标，让这段时间有收获</p>
+            <h1>
+              学习模式
+              <span className="title-dot" />
+            </h1>
+          </div>
         </div>
-      </div>
+      )}
       {!data ? (
         <p className="muted study-loading">
-          {error || (
+          {error ? (
+            <>
+              <span role="alert">{error}</span>
+              <button className="button secondary" onClick={() => void load()}>
+                重新连接
+              </button>
+            </>
+          ) : (
             <>
               <LoaderCircle className="spin" size={16} /> 正在打开学习模式…
             </>
@@ -257,9 +268,19 @@ export function Study() {
           </p>
         </div>
       ) : snapshot.role === "referee" ? (
-        <RefereeStudy view={data} post={post} now={now} reload={load} />
+        desktop ? (
+          <p>桌面按钮供学员使用。请从菜单栏打开网站，以学员名字重新进入。</p>
+        ) : (
+          <RefereeStudy view={data} post={post} now={now} reload={load} />
+        )
       ) : (
-        <PlayerStudy view={data} post={post} now={now} reload={load} />
+        <PlayerStudy
+          view={data}
+          post={post}
+          now={now}
+          reload={load}
+          desktop={desktop}
+        />
       )}
     </div>
   );
@@ -282,11 +303,13 @@ function PlayerStudy({
   post,
   now,
   reload,
+  desktop = false,
 }: {
   view: StudyView;
   post: Post;
   now: () => number;
   reload: () => Promise<void>;
+  desktop?: boolean;
 }) {
   const { snapshot, refresh } = useGame();
   const open = view.sessions.find((s) => !s.endedAt) ?? null;
@@ -329,6 +352,9 @@ function PlayerStudy({
       save(STUDY_SETUP_KEY, JSON.stringify({ goals, goal, minutes }));
   }, [goals, goal, minutes, phase]);
   const combinedGoal = [...goals, goal.trim()].filter(Boolean).join("；");
+  const [desktopSettings, setDesktopSettings] = useState(false);
+  const [desktopBusy, setDesktopBusy] = useState(false);
+  const starting = useRef(false);
   function toggleGoal(label: string) {
     const next = goals.includes(label)
       ? goals.filter((g) => g !== label)
@@ -347,6 +373,34 @@ function PlayerStudy({
   const aiOn = Boolean(view.ai) && wantAi && consent === "yes",
     // The switch shows her intent; frames are only sent once she has agreed on the consent screen.
     aiWanted = Boolean(view.ai) && wantAi && consent !== "no";
+  const desktopConsent = JSON.stringify({
+    ai: aiOn,
+    screen: aiOn && wantScreen,
+    share,
+    penalty: view.rules.penalty,
+    maxStrikes: view.rules.maxStrikes,
+  });
+  useEffect(() => {
+    // Recover a server-accepted start whose response was lost; never create another session.
+    if (
+      desktop &&
+      phase === "intro" &&
+      open &&
+      !sessionId &&
+      !starting.current
+    ) {
+      queueMicrotask(() => {
+        setSessionId(open.id);
+        setPhase(
+          open.result.status === "summary"
+            ? "summary"
+            : open.result.status === "paused"
+              ? "paused"
+              : "reconnect",
+        );
+      });
+    }
+  }, [desktop, phase, open, sessionId]);
   const [baseline, setBaseline] = useState<Pose | null>(() => {
     try {
       return JSON.parse(saved(KEYS.baseline) ?? "null");
@@ -370,6 +424,18 @@ function PlayerStudy({
         Notification.permission === "granted",
     ),
     [, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!desktop) return;
+    desktopBridge()?.setLayout(
+      phase === "intro" && !desktopSettings && !consentOpen && !problem
+        ? "idle"
+        : ["running", "paused", "reconnect"].includes(phase)
+          ? "study"
+          : "setup",
+      Boolean(session && !session.endedAt && phase !== "summary"),
+    );
+  }, [desktop, desktopSettings, consentOpen, problem, phase, session]);
 
   const video = useRef<HTMLVideoElement | null>(null),
     screenVideo = useRef<HTMLVideoElement>(null),
@@ -562,11 +628,46 @@ function PlayerStudy({
   }
 
   function begin() {
+    if (starting.current) return;
+    setProblem("");
     startAfterConsent.current = true;
     if (view.ai && wantAi && consent !== "yes") setConsentOpen(true);
+    else if (desktop && saved("offer-quest-desktop-consent") === desktopConsent)
+      void prepareDesktop();
     else setPhase("explain");
   }
+  async function prepareDesktop() {
+    if (starting.current) return;
+    starting.current = true;
+    setDesktopBusy(true);
+    setProblem("");
+    stopAll();
+    setPhase("loading");
+    save("offer-quest-desktop-consent", desktopConsent);
+    try {
+      // Invoke display capture while the desktop button's click is still active.
+      if (knockOn) primeKnock();
+      if (aiOn && wantScreen && !screen.current) await shareScreen();
+      await startCamera();
+      detector.current = await loadDetector();
+      if (view.rules.lookAwaySeconds > 0) await runCalibration();
+      else await start(null);
+    } catch (e) {
+      stopAll();
+      setProblem(
+        e instanceof Error && e.message === "start-failed"
+          ? "开始还没有确认成功。请重试；如果服务器已开始，会接回原来的学习。"
+          : cameraProblem(e),
+      );
+      setPhase("intro");
+      await reload();
+    } finally {
+      starting.current = false;
+      setDesktopBusy(false);
+    }
+  }
   async function openCamera() {
+    if (desktop) return prepareDesktop();
     setProblem("");
     setPhase("loading");
     try {
@@ -596,12 +697,13 @@ function PlayerStudy({
     }
     setBaseline(result);
     save(KEYS.baseline, JSON.stringify(result));
-    setPhase("ready");
+    if (desktop) await start(result);
+    else setPhase("ready");
   }
-  async function start() {
+  async function start(pose: Pose | null = baseline) {
     // Audio and the screen picker may only start from a click; this is the click.
     if (knockOn) primeKnock();
-    if (aiOn && wantScreen && !screen.current) await shareScreen();
+    if (!desktop && aiOn && wantScreen && !screen.current) await shareScreen();
     const reply = await post({
       type: "start",
       ai: aiOn,
@@ -611,8 +713,11 @@ function PlayerStudy({
       minutes,
     });
     const s = reply?.sessions.find((x) => !x.endedAt);
-    if (!s) return;
-    tracker.current = new SignalTracker(withDefaults(s.rules), baseline);
+    if (!s) {
+      if (desktop) throw new Error("start-failed");
+      return;
+    }
+    tracker.current = new SignalTracker(withDefaults(s.rules), pose);
     setSessionId(s.id);
     setStruckSeen(false);
     setAiDown(false);
@@ -620,6 +725,8 @@ function PlayerStudy({
   }
   async function reconnect() {
     try {
+      if (desktop && session?.layers.screen && !screen.current)
+        await shareScreen();
       await startCamera();
       detector.current = await loadDetector();
     } catch (e) {
@@ -648,6 +755,8 @@ function PlayerStudy({
   }
   async function resume() {
     try {
+      if (desktop && session?.layers.screen && !screen.current)
+        await shareScreen();
       await startCamera();
     } catch (e) {
       toast.error(cameraProblem(e));
@@ -655,6 +764,10 @@ function PlayerStudy({
     }
     const reply = await post({ type: "resume", sessionId });
     const s = reply?.sessions.find((x) => x.id === sessionId);
+    if (!s || s.endedAt) {
+      stopCamera();
+      return;
+    }
     if (s && !s.endedAt) {
       if (!detector.current) detector.current = await loadDetector();
       tracker.current ??= new SignalTracker(withDefaults(s.rules), baseline);
@@ -663,8 +776,8 @@ function PlayerStudy({
     }
   }
   async function endEarly() {
-    stopAll();
-    await post({ type: "end", sessionId });
+    const reply = await post({ type: "end", sessionId });
+    if (!reply) return;
     finish(sessionId!);
   }
   async function submitSummary(text: string) {
@@ -853,10 +966,21 @@ function PlayerStudy({
       await post({ type: "share", sessionId: session.id, share: value }, true);
   };
   const posterSession = view.sessions.find((s) => s.id === posterId);
+  async function desktopAction(action: () => Promise<void>) {
+    if (starting.current) return;
+    starting.current = true;
+    setDesktopBusy(true);
+    try {
+      await action();
+    } finally {
+      starting.current = false;
+      setDesktopBusy(false);
+    }
+  }
 
   return (
     <>
-      {cameraOn && (
+      {cameraOn && !desktop && (
         <div className="camera-pill" role="status">
           <span className="rec-dot" aria-hidden="true" />
           摄像头开启中{screenOn && " · 屏幕共享中"}
@@ -873,8 +997,48 @@ function PlayerStudy({
       )}
       <video ref={screenVideo} className="screen-source" muted playsInline />
 
-      {phase === "intro" && (
+      {desktop && phase === "intro" && !desktopSettings && (
+        <section className="desktop-launcher">
+          <button
+            className="desktop-start"
+            onClick={begin}
+            disabled={desktopBusy}
+          >
+            <Play size={23} fill="currentColor" />
+            <span>
+              开始学习
+              <small>
+                {minutes} 分钟 · {combinedGoal || "自由学习"}
+              </small>
+            </span>
+          </button>
+          <div className="desktop-launcher-foot">
+            <span>点一下，就开始。</span>
+            <button
+              onClick={() => setDesktopSettings(true)}
+              aria-label="学习设置"
+            >
+              <Settings2 size={17} />
+              设置
+            </button>
+          </div>
+          {problem && (
+            <p className="form-error" role="alert">
+              {problem}
+            </p>
+          )}
+        </section>
+      )}
+      {phase === "intro" && (!desktop || desktopSettings) && (
         <>
+          {desktop && (
+            <button
+              className="button secondary"
+              onClick={() => setDesktopSettings(false)}
+            >
+              保存，回到学习按钮
+            </button>
+          )}
           <Intro
             view={view}
             setup={{
@@ -930,9 +1094,13 @@ function PlayerStudy({
               note="教练来后门时敲两下，戴着耳机也能听见。"
             />
           </Intro>
-          <WeeklyPlanCard />
-          <SessionList view={view} onPoster={setPosterId} />
-          <DeleteSnapshots view={view} post={post} />
+          {!desktop && (
+            <>
+              <WeeklyPlanCard />
+              <SessionList view={view} onPoster={setPosterId} />
+              <DeleteSnapshots view={view} post={post} />
+            </>
+          )}
           {posterId && posterSession && (
             <Modal
               title="学习结算单"
@@ -971,6 +1139,13 @@ function PlayerStudy({
                 : "不保存任何截图。"}
             </li>
             <li>首次使用要下载约 20 MB 的检测模型，之后浏览器会缓存。</li>
+            {desktop && (
+              <li>
+                沿用训练营的学习规则：提前结束、超时离开或达到违规上限，会判为未通过，$
+                {view.rules.penalty}{" "}
+                计入请客基金。隐藏小组件可以继续学习，退出应用会中断。
+              </li>
+            )}
           </ul>
           {problem && (
             <p className="form-error" role="alert">
@@ -982,7 +1157,7 @@ function PlayerStudy({
               className="button primary"
               onClick={() => void openCamera()}
             >
-              <Camera size={17} /> 开启摄像头
+              <Camera size={17} /> {desktop ? "同意并开始学习" : "开启摄像头"}
             </button>
             <button className="text-button" onClick={() => setPhase("intro")}>
               返回
@@ -1037,20 +1212,24 @@ function PlayerStudy({
                     <div className="study-step-actions">
                       <button
                         className="button primary"
-                        onClick={() => void runCalibration()}
+                        onClick={() =>
+                          void (desktop ? prepareDesktop() : runCalibration())
+                        }
                       >
                         重新校准
                       </button>
-                      <button
-                        className="text-button"
-                        onClick={() => {
-                          setBaseline(null);
-                          setProblem("");
-                          setPhase("ready");
-                        }}
-                      >
-                        跳过校准（这次不检查视线）
-                      </button>
+                      {!desktop && (
+                        <button
+                          className="text-button"
+                          onClick={() => {
+                            setBaseline(null);
+                            setProblem("");
+                            setPhase("ready");
+                          }}
+                        >
+                          跳过校准（这次不检查视线）
+                        </button>
+                      )}
                     </div>
                   </>
                 )}
@@ -1097,13 +1276,86 @@ function PlayerStudy({
             还剩 {clock(Date.parse(session.endsAt) - now())}
             。重新开启摄像头继续；离开超过 3 分钟会被判定为中途离开。
           </p>
-          <button className="button primary" onClick={() => void reconnect()}>
+          <button
+            className="button primary"
+            disabled={desktopBusy}
+            onClick={() =>
+              void (desktop ? desktopAction(reconnect) : reconnect())
+            }
+          >
             <Camera size={17} /> 继续本次学习
           </button>
         </section>
       )}
 
-      {(phase === "running" || phase === "paused") && session && (
+      {desktop && (phase === "running" || phase === "paused") && session && (
+        <>
+          <PipDoor
+            view={view}
+            session={session}
+            coach={coach}
+            phase={phase}
+            remaining={Date.parse(session.endsAt) - now()}
+            pauseLeft={
+              session.pausedAt
+                ? Date.parse(session.pausedAt) +
+                  session.rules.pauseMinutes * 60_000 -
+                  now()
+                : 0
+            }
+            attach={attach}
+            onEnd={() => void desktopAction(endEarly)}
+          />
+          {screenOn && (
+            <p className="muted small">屏幕共享中 · 只在查岗时截取一帧</p>
+          )}
+          <div className="desktop-controls">
+            <button
+              className="button secondary"
+              disabled={
+                desktopBusy ||
+                (phase === "running" &&
+                  (session.pauseUsed || session.rules.pauseMinutes <= 0))
+              }
+              onClick={() =>
+                void desktopAction(phase === "paused" ? resume : pause)
+              }
+            >
+              {phase === "paused" ? <Play size={16} /> : <Pause size={16} />}
+              {phase === "paused" ? "继续学习" : "暂停"}
+            </button>
+            <button
+              className="button secondary"
+              disabled={desktopBusy}
+              onClick={() => void desktopAction(endEarly)}
+            >
+              提前结束
+            </button>
+          </div>
+          <p className="desktop-session-note">
+            {session.rules.maxStrikes} 次违规算失败 · 提前结束按失败结算
+          </p>
+          <StrikeMarks
+            used={session.result.effective}
+            max={session.rules.maxStrikes}
+          />
+          {cameraLost && (
+            <p role="alert" className="form-error">
+              摄像头断开了。
+              <button
+                className="text-button"
+                onClick={() =>
+                  void startCamera().catch((e) => toast.error(cameraProblem(e)))
+                }
+              >
+                重新连接摄像头
+              </button>
+            </p>
+          )}
+          {aiDown && <p className="muted small">AI 暂不可用，本机检测继续。</p>}
+        </>
+      )}
+      {!desktop && (phase === "running" || phase === "paused") && session && (
         <Hud
           view={view}
           session={session}

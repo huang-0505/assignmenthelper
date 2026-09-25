@@ -20,7 +20,7 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 import { useGame } from "./provider";
 import { Modal } from "./ui";
-import { StudyInstallButton } from "./study-install";
+import { MacDownloadButton } from "./mac-download";
 const study = { href: "/study", label: "学习模式", icon: Timer },
   applications = { href: "/applications", label: "投递记录", icon: Briefcase },
   history = { href: "/history", label: "打卡日历", icon: CalendarDays },
@@ -145,7 +145,7 @@ export function Shell({ children }: { children: ReactNode }) {
             {links.find((l) => l.href === path)?.label || "今日挑战"}
           </div>
           <div className="topbar-right">
-            {snapshot.role === "player" && <StudyInstallButton />}
+            {snapshot.role === "player" && <MacDownloadButton />}
             <span className="timezone">
               <span className="live-dot" />
               纽约时间

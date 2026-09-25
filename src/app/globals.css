@@ -1,4 +1,160 @@
 @import "tailwindcss";
+/* Native Mac widget: a dedicated compact surface, without website navigation. */
+.desktop-widget {
+  min-height: 100dvh;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.desktop-dragbar {
+  height: 38px;
+  padding: 0 10px 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.8px;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.desktop-dragbar button {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  width: 44px;
+  height: 36px;
+}
+.desktop-study {
+  padding: 10px 16px 18px;
+}
+.desktop-start {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 94px;
+  padding: 18px;
+  border-radius: 16px;
+  background: var(--blue);
+  color: var(--white);
+  text-align: left;
+  box-shadow: 0 5px 0 #253fb2;
+}
+.desktop-start span {
+  font-size: 23px;
+  font-weight: 850;
+  min-width: 0;
+}
+.desktop-start small {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.desktop-launcher-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.desktop-launcher-foot button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  padding-inline: 8px;
+}
+.desktop-widget .login-art {
+  display: none;
+}
+.desktop-widget .login-page {
+  display: block;
+  min-height: 0;
+  padding: 20px;
+}
+.desktop-widget .login-form {
+  padding: 16px;
+  width: 100%;
+  max-width: none;
+}
+.desktop-widget .loading-page {
+  min-height: 280px;
+}
+.desktop-widget .access-message {
+  min-height: 240px;
+}
+.desktop-study .study-hero,
+.desktop-study .study-columns,
+.desktop-study .study-step.setup {
+  display: block;
+}
+.desktop-study .hero-door {
+  display: none;
+}
+.desktop-study .study-rules {
+  display: none;
+}
+.desktop-study .study-board {
+  margin-top: 16px;
+  padding: 16px;
+}
+.desktop-study .white-panel {
+  padding: 18px;
+  margin-top: 18px;
+}
+.desktop-study .study-step-actions {
+  flex-wrap: wrap;
+}
+.desktop-study .study-step {
+  margin: 0;
+}
+.desktop-study .study.pip-door {
+  height: 410px;
+  padding: 0;
+}
+.desktop-study .pip-status button {
+  display: none;
+}
+.desktop-controls {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+.desktop-controls > button {
+  flex: 1;
+}
+.desktop-session-note {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 10px 0;
+}
+.desktop-study .study-done {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.desktop-study .poster {
+  width: 100%;
+}
+.desktop-study .setup-camera {
+  max-height: 260px;
+}
+.desktop-study .setup-copy {
+  padding: 14px 0 0;
+}
+.desktop-study .study-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.desktop-widget .study-done .text-button {
+  min-height: 44px;
+}
 :root {
   --paper: #f3f6fc;
   --white: #fff;

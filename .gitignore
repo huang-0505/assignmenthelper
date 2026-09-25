@@ -47,3 +47,7 @@ next-env.d.ts
 
 # Local dev-server launch config for the desktop app
 .claude/launch.json
+
+# Packaged desktop apps and installer output
+/desktop/node_modules/
+/desktop/release/
