@@ -57,6 +57,35 @@ function runDays(state: GameState, count: number, complete = true) {
   }
 }
 describe("daily settlement", () => {
+  it("updates unanswered question wording without changing assignments or answered history", () => {
+    const state = game();
+    const day = state.days[state.startedOn];
+    const original = structuredClone(day.question!);
+    const revisedBank = bank.map((question) =>
+      question.id === original.id
+        ? { ...question, prompt: "Same problem, clearer wording." }
+        : question,
+    );
+    advance(state, noon(state.startedOn), revisedBank);
+    expect(day.question).toEqual({
+      ...original,
+      prompt: "Same problem, clearer wording.",
+    });
+
+    finish(day);
+    advance(state, noon(state.startedOn), bank);
+    expect(day.question?.prompt).toBe("Same problem, clearer wording.");
+
+    const unanswered = game();
+    const current = unanswered.days[unanswered.startedOn].question!;
+    const changedRubric = revisedBank.map((question) =>
+      question.id === current.id
+        ? { ...question, rubric: ["New topic"] }
+        : question,
+    );
+    advance(unanswered, noon(unanswered.startedOn), changedRubric);
+    expect(current.prompt).toBe(original.prompt);
+  });
   it("refreshes saved default 21-day rewards while preserving custom rewards", () => {
     const state = game();
     runDays(state, 21);

@@ -145,7 +145,7 @@ export function nextBq(
 
 const probes = [
   [
-    'Why did you choose {methods} for "{title}"? Compare it with two plausible alternatives and explain which constraint changed your decision.',
+    'In "{title}", you used {methods}. Why did you choose them? Compare two other approaches and explain which project requirement mattered most.',
     [
       "Link the choice to the project objective",
       "Compare two concrete alternatives",
@@ -154,7 +154,7 @@ const probes = [
     ],
   ],
   [
-    'In "{title}", your role was: {role}. Walk through one decision you personally owned, what others contributed, and how you verified your work.',
+    'In "{title}", your role was: {role}. Describe one decision you made yourself. What did teammates do, how did you check the result, and what would you change next time?',
     [
       "Separate personal ownership from team work",
       "Explain a concrete decision",
@@ -163,7 +163,7 @@ const probes = [
     ],
   ],
   [
-    'For "{title}", you reported: {metrics}. How was impact measured, and how would you rule out a misleading improvement?',
+    'For "{title}", you reported: {metrics}. How did you measure these results? What did you compare them with, and how would you check that the improvement came from your work?',
     [
       "Define metric, baseline, and denominator",
       "Explain measurement design",
@@ -172,7 +172,7 @@ const probes = [
     ],
   ],
   [
-    'Imagine "{title}" fails for a new user segment. Using your project context ({summary}), explain your diagnosis, mitigation, and monitoring plan.',
+    'Your project is "{title}": {summary}. It works poorly for a new group of users. How would you find the cause, address the problem, and check whether the fix works?',
     [
       "Identify plausible distribution changes",
       "Slice errors by segment",
@@ -181,7 +181,7 @@ const probes = [
     ],
   ],
   [
-    'If you rebuilt "{title}" with half the time, what would you change about {methods}, what would you keep, and what evidence supports that prioritization?',
+    'You need to rebuild "{title}" in half the original time. You previously used {methods}. What would you keep, simplify, or remove? Explain how you would check that the smaller version still meets the main goal.',
     [
       "Identify the highest value component",
       "Describe a simpler baseline",
@@ -375,6 +375,19 @@ export function advance(
     const date = addDays(day.date, 1);
     state.days[date] = createDay(state, date, bank, state.settings);
     day = state.days[date];
+  }
+  // Update wording only before the first answer; answered questions keep their original text.
+  if (day.question && day.answers.length === 0) {
+    const current = day.question;
+    const updated = bank.find((question) => question.id === current.id);
+    if (
+      updated &&
+      updated.category === current.category &&
+      updated.difficulty === current.difficulty &&
+      updated.expectedQuery === current.expectedQuery &&
+      JSON.stringify(updated.rubric) === JSON.stringify(current.rubric)
+    )
+      current.prompt = updated.prompt;
   }
   // Adding the first project unlocks today's stable question, without changing existing questions.
   if (
