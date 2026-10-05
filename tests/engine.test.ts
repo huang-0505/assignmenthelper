@@ -57,6 +57,41 @@ function runDays(state: GameState, count: number, complete = true) {
   }
 }
 describe("daily settlement", () => {
+  it("refreshes saved default 21-day rewards while preserving custom rewards", () => {
+    const state = game();
+    runDays(state, 21);
+    state.nextSettings = structuredClone(state.settings);
+    const savedSettings = [
+      state.settings,
+      state.nextSettings,
+      ...Object.values(state.days).map((day) => day.settings),
+    ];
+    for (const settings of savedSettings)
+      settings.rewards.find((reward) => reward.streak === 21)!.text =
+        "一份裁判用心挑的小礼物！";
+    state.nextSettings.rewards.find((reward) => reward.streak === 21)!.text =
+      "自选奖励";
+    const before = evaluate(state, noon("2026-10-04"));
+
+    advance(state, noon("2026-10-04"), bank);
+
+    expect(
+      state.settings.rewards.find((reward) => reward.streak === 21)?.text,
+    ).toBe("秘密奖励（后面）");
+    expect(
+      state.nextSettings.rewards.find((reward) => reward.streak === 21)?.text,
+    ).toBe("自选奖励");
+    const after = evaluate(state, noon("2026-10-04"));
+    expect(after.rewards.find((reward) => reward.streak === 21)?.text).toBe(
+      "秘密奖励（后面）",
+    );
+    expect(after).toEqual({
+      ...before,
+      rewards: before.rewards.map((reward) =>
+        reward.streak === 21 ? { ...reward, text: "秘密奖励（后面）" } : reward,
+      ),
+    });
+  });
   it("requires every minimum and awards base points on success", () => {
     const s = game();
     finish(s.days[s.startedOn]);
@@ -103,7 +138,11 @@ describe("daily settlement", () => {
     first.applications = first.contacts = 0;
     let r = evaluate(s, noon(s.startedOn));
     expect(r.days[0]).toMatchObject({ status: "met", points: 100 });
-    expect(requirements(first)).toEqual({ completed: 3, required: 3, met: true });
+    expect(requirements(first)).toEqual({
+      completed: 3,
+      required: 3,
+      met: true,
+    });
     first.applications = 15;
     r = evaluate(s, noon(s.startedOn));
     expect(r.days[0]).toMatchObject({ status: "gold", points: 150 });

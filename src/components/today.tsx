@@ -3,6 +3,7 @@ import Link from "next/link";
 import { JobSearchLink, NetworkingLink } from "./networking-link";
 import { JdButton } from "./job-description";
 import { WeeklyPlanCard } from "./weekly-plan";
+import { RewardBalance } from "./reward-balance";
 import { InterviewWorkspace } from "./interview-workspace";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
@@ -106,6 +107,7 @@ export function Today() {
         </div>
       </div>
       <WeeklyPlanCard />
+      <RewardBalance />
       {summary.pool >= state.settings.penaltyThreshold && (
         <div className="penalty-banner">
           <Gift />

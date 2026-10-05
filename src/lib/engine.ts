@@ -51,7 +51,7 @@ export const DEFAULT_SETTINGS: Settings = {
   rewards: [
     { streak: 7, text: "一顿想吃的饭，裁判请客！" },
     { streak: 14, text: "一起去一日游！" },
-    { streak: 21, text: "一份裁判用心挑的小礼物！" },
+    { streak: 21, text: "秘密奖励（后面）" },
   ],
   study: DEFAULT_STUDY,
 };
@@ -321,6 +321,17 @@ export function advance(
   now: string,
   bank: Question[],
 ): string {
+  // Refresh the former default wording in saved rewards, including earned milestones.
+  for (const settings of [
+    state.settings,
+    state.nextSettings,
+    ...Object.values(state.days).map((day) => day.settings),
+  ]) {
+    for (const reward of settings?.rewards ?? []) {
+      if (reward.streak === 21 && reward.text === "一份裁判用心挑的小礼物！")
+        reward.text = "秘密奖励（后面）";
+    }
+  }
   let day = Object.values(state.days).sort((a, b) =>
     b.date.localeCompare(a.date),
   )[0];

@@ -2292,6 +2292,22 @@ main#main {
   right: 15px;
   top: 23px;
 }
+.reward-balance {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.reward-balance h2 {
+  font-size: 16px;
+}
+.reward-balance strong {
+  margin-left: auto;
+  color: var(--green);
+  font-size: 32px;
+  font-weight: 900;
+}
 .referee-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));

@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { WeeklyPlanEditor } from "./weekly-plan";
+import { RewardBalance } from "./reward-balance";
 import { JdButton } from "./job-description";
 import { useState } from "react";
 import {
@@ -452,6 +453,7 @@ export function Stats() {
   return (
     <>
       <PageTitle title="看见，正在变强的你" subtitle="成长记录" />
+      <RewardBalance />
       <div className="stat-strip">
         {[
           {
@@ -836,6 +838,7 @@ export function Referee() {
       <PageTitle title="做她最靠谱的加油官" subtitle="裁判工作台" />
       <WeeklyPlanEditor />
       <NotePanel />
+      <RewardBalance />
       <div className="referee-summary">
         <div>
           <span className="task-icon lavender">

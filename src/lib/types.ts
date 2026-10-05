@@ -125,6 +125,8 @@ export type GameState = {
   nextSettings?: Settings;
   days: Record<string, Day>;
   projects: Project[];
+  /** Dollar rewards granted separately from points and the penalty fund. */
+  rewardBalance?: number;
   redemptions: { id: string; at: string; amount: number }[];
   audit: Audit[];
   /** Study Mode coach: the referee's lines and photo versions (photos live in private storage). */
