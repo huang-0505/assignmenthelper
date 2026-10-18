@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { applyAction } from "../src/lib/actions";
 import { MEDIAPIPE_VERSION } from "../src/lib/study-detector";
-import { advance, evaluate, newGame } from "../src/lib/engine";
+import { advance, evaluate, interviewItems, newGame } from "../src/lib/engine";
 import {
   calibrate,
   DEFAULT_STUDY,
@@ -71,17 +71,19 @@ function metDay(day: Day) {
   day.applications = day.settings.applications;
   day.contacts = day.settings.contacts;
   day.episodes = day.settings.episodes ?? 0;
-  day.answers.push({
-    id: crypto.randomUUID(),
-    text: "A specific explanation of the evaluation design.",
-    submittedAt: at(0),
-    grade: { score: 4, status: "graded", missing: [], tip: "", model: "test" },
-  });
-  if (day.bq) {
-    day.bq.text =
-      "Situation, task, action and a concrete measurable result here.";
-    day.bq.completedAt = at(0);
-  }
+  for (const item of interviewItems(day))
+    item.answers.push({
+      id: crypto.randomUUID(),
+      text: "A specific explanation of the evaluation design.",
+      submittedAt: at(0),
+      grade: {
+        score: 4,
+        status: "graded",
+        missing: [],
+        tip: "",
+        model: "test",
+      },
+    });
 }
 
 describe("strike aggregation", () => {

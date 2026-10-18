@@ -1032,6 +1032,25 @@ main#main {
   border-color: #cae9dc;
   background: #f0faf5;
 }
+.interview-question + .interview-question {
+  border-top: 1px solid var(--line);
+  margin-top: 26px;
+  padding-top: 24px;
+}
+.question-number {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: #eef2fb;
+  color: var(--ink);
+  font-weight: 850;
+}
+.interview-question.passed .question-number {
+  background: #f0faf5;
+  color: var(--green);
+}
 .question-meta {
   display: flex;
   align-items: center;
@@ -1294,6 +1313,10 @@ main#main {
 .status.frozen {
   background: #e3f2fa;
   color: #387591;
+}
+.status.excused {
+  background: #f4efe7;
+  color: #7a6448;
 }
 .status.pending,
 .status.waiting {
@@ -1806,6 +1829,11 @@ main#main {
   color: #4686a6;
   border-color: #cfe6f2;
 }
+.calendar-day.excused {
+  background: #f7f3ec;
+  color: #85704f;
+  border-color: #ebe2d3;
+}
 .calendar-day.missed {
   background: #fdefef;
   color: #b45057;
@@ -1876,7 +1904,8 @@ main#main {
 }
 .day-detail-counts {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 12px;
   margin: 20px 0;
   padding: 17px;
@@ -1893,7 +1922,7 @@ main#main {
   color: var(--ink);
   margin-top: 4px;
 }
-.day-detail > .english-question {
+.day-detail .english-question {
   font-size: 16px;
   margin: 10px 0 20px;
 }
@@ -1960,6 +1989,45 @@ main#main {
   display: flex;
   gap: 15px;
   align-items: center;
+}
+.detail-question + .detail-question {
+  margin-top: 23px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.excused-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 13px;
+  background: #f7f3ec;
+  border-radius: 8px;
+  font-size: 12px;
+  margin-bottom: 14px;
+  color: #6f5b40;
+}
+.excused-note strong {
+  display: block;
+}
+.excuse-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 13px;
+  padding: 14px;
+  margin-bottom: 18px;
+  border: 1px dashed #e2d6c3;
+  border-radius: 10px;
+}
+.excuse-form label {
+  flex: 1 1 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+}
+.excuse-form .muted {
+  flex-basis: 100%;
 }
 .detail-bq {
   margin-top: 23px;
@@ -3542,6 +3610,8 @@ main#main {
   .day-detail-counts {
     padding: 15px;
     gap: 10px;
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .day-detail-counts strong {
     font-size: 17px;

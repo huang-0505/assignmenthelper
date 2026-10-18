@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, type ReactNode } from "react";
-import { X, Check, Snowflake, Clock3, Minus } from "lucide-react";
+import { X, Check, Snowflake, Clock3, Minus, Coffee } from "lucide-react";
 import type { DayStatus } from "@/lib/types";
 export const statusLabel: Record<DayStatus, string> = {
   open: "进行中",
@@ -8,6 +8,7 @@ export const statusLabel: Record<DayStatus, string> = {
   gold: "超额完成",
   missed: "未达标",
   frozen: "冻结保护",
+  excused: "请假",
   pending: "待裁判审核",
   waiting: "等待前日审核",
 };
@@ -18,6 +19,8 @@ export function Status({ status }: { status: DayStatus }) {
         <Check size={13} />
       ) : status === "frozen" ? (
         <Snowflake size={13} />
+      ) : status === "excused" ? (
+        <Coffee size={13} />
       ) : status === "pending" || status === "waiting" ? (
         <Clock3 size={13} />
       ) : (

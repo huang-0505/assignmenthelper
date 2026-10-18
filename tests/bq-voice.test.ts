@@ -33,7 +33,12 @@ const env = vi.hoisted(() => {
       }),
     },
   };
-  return { files, client, jar: new Map<string, string>(), state: undefined as unknown };
+  return {
+    files,
+    client,
+    jar: new Map<string, string>(),
+    state: undefined as unknown,
+  };
 });
 vi.mock("next/headers", () => ({
   cookies: async () => ({
@@ -96,7 +101,10 @@ async function enter(body: object) {
   await auth.POST(
     new Request("http://app.test/api/auth", {
       method: "POST",
-      headers: { origin: "http://app.test", "content-type": "application/json" },
+      headers: {
+        origin: "http://app.test",
+        "content-type": "application/json",
+      },
       body: JSON.stringify(body),
     }),
   );
@@ -110,7 +118,10 @@ async function upload(body: object) {
   const res = await voice.POST(
     new Request("http://app.test/api/bq/voice", {
       method: "POST",
-      headers: { origin: "http://app.test", "content-type": "application/json" },
+      headers: {
+        origin: "http://app.test",
+        "content-type": "application/json",
+      },
       body: JSON.stringify(body),
     }),
   );
@@ -118,7 +129,10 @@ async function upload(body: object) {
 }
 const fetchVoice = (date: string) =>
   voice.GET(new Request(`http://app.test/api/bq/voice?date=${date}`));
-const today = () => Object.keys((env.state as GameState).days).sort().at(-1)!;
+const today = () =>
+  Object.keys((env.state as GameState).days)
+    .sort()
+    .at(-1)!;
 let player = "",
   referee = "";
 beforeEach(async () => {
@@ -135,7 +149,19 @@ describe("BQ voice recordings", () => {
   it("stores her recording, completes the practice stage, and plays it back to both of them", async () => {
     as(player);
     const date = today();
-    const draft = await upload({ date, mime: "audio/webm", seconds: 42, audio: WEBM });
+    // New days have no BQ since it was retired; recordings belong to days that still had one.
+    (env.state as GameState).days[date].bq = {
+      questionId: "bq-01",
+      stage: 1,
+      text: "",
+      practiced: false,
+    };
+    const draft = await upload({
+      date,
+      mime: "audio/webm",
+      seconds: 42,
+      audio: WEBM,
+    });
     expect(draft.status).toBe(200);
     // At the draft stage the recording is attached but the written draft is still the task.
     expect(draft.body.state.days[date].bq).toMatchObject({
@@ -148,7 +174,12 @@ describe("BQ voice recordings", () => {
       detail: "录了 BQ 口述，42 秒",
     });
     (env.state as GameState).days[date].bq!.stage = 2;
-    const told = await upload({ date, mime: "audio/mp4", seconds: 60, audio: M4A });
+    const told = await upload({
+      date,
+      mime: "audio/mp4",
+      seconds: 60,
+      audio: M4A,
+    });
     expect(told.status).toBe(200);
     expect(told.body.state.days[date].bq).toMatchObject({
       stage: 2,
@@ -168,7 +199,8 @@ describe("BQ voice recordings", () => {
     as(player);
     const date = today();
     expect(
-      (await upload({ date, mime: "audio/webm", seconds: 10, audio: PNG })).status,
+      (await upload({ date, mime: "audio/webm", seconds: 10, audio: PNG }))
+        .status,
     ).toBe(400);
     expect(
       (
@@ -183,7 +215,8 @@ describe("BQ voice recordings", () => {
     expect((await fetchVoice(date)).status).toBe(404);
     as(referee);
     expect(
-      (await upload({ date, mime: "audio/webm", seconds: 10, audio: WEBM })).status,
+      (await upload({ date, mime: "audio/webm", seconds: 10, audio: WEBM }))
+        .status,
     ).toBe(403);
   });
 });

@@ -5,8 +5,7 @@ import { JdButton } from "./job-description";
 import { WeeklyPlanCard } from "./weekly-plan";
 import { RewardBalance } from "./reward-balance";
 import { InterviewWorkspace } from "./interview-workspace";
-import { useRef, useState } from "react";
-import { toast } from "sonner";
+import { useState } from "react";
 import {
   ArrowUpRight,
   BookOpen,
@@ -20,39 +19,33 @@ import {
   Gift,
   Lightbulb,
   LockKeyhole,
-  Mic,
-  Minus,
   Plus,
   RotateCcw,
   Send,
   Snowflake,
   Sparkles,
-  Square,
   Star,
   Trash2,
-  Tv,
   Users,
   Zap,
 } from "lucide-react";
 import {
-  bqDone,
   categoryFor,
-  completedBq,
   coreOf,
   dayTasks,
-  episodesDone,
   finalScore,
-  latestAnswer,
+  interviewDone,
+  interviewItems,
+  itemScore,
   requirements,
+  retrySource,
   weekKey,
   weekTotals,
 } from "@/lib/engine";
-import type { Day, Question } from "@/lib/types";
-import data from "../../data/bq.json";
+import type { Day, InterviewItem } from "@/lib/types";
 import { useGame } from "./provider";
 import { DoorWindow } from "./study-parts";
 import { Modal, Progress, SectionHeading, Status } from "./ui";
-const bank = data as Question[];
 const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
 export function Today() {
@@ -68,10 +61,6 @@ export function Today() {
         (Date.parse(day.closesAt) - Date.parse(snapshot.serverTime)) / 60000,
       ),
     );
-  const bqTotal = [...completedBq(state).values()].reduce(
-    (n, p) => n + Number(Boolean(p.draft)) + Number(Boolean(p.practice)),
-    0,
-  );
   if (snapshot.role === "referee")
     return (
       <div className="access-message">
@@ -204,8 +193,6 @@ export function Today() {
             </div>
           </section>
           <Interview key={`answer-${today}`} day={day} />
-          <Bq key={`bq-${today}`} day={day} />
-          <English key={`english-${today}`} day={day} />
           <div className="day-bottom">
             <Status status={current.status} />
             <span>
@@ -261,19 +248,6 @@ export function Today() {
               })}
             </div>
           </section>
-          <div className="bq-journey">
-            <div>
-              <Mic size={18} />
-              <strong>BQ 故事库</strong>
-              <span>{summary.bqCompleted} / 12</span>
-            </div>
-            <Progress
-              value={(bqTotal / 24) * 100}
-              label="BQ 阶段进度"
-              tone="green"
-            />
-            <p>已完成 {bqTotal} / 24 个阶段。每个好故事，都值得被听见。</p>
-          </div>
           <div className="tiny-quote">
             <span>“</span>
             <p>
@@ -642,38 +616,12 @@ function useDraft(key: string, initial = "") {
   ] as const;
 }
 function Interview({ day }: { day: Day }) {
-  const { act, busy, snapshot } = useGame(),
-    answer = latestAnswer(day),
-    score = finalScore(answer);
-  const [text, setText] = useDraft(
-      `oq-${snapshot.mode}-answer-${day.date}`,
-      answer?.text ?? "",
-    ),
-    [showRubric, setShowRubric] = useState(false);
-  const pending = Boolean(answer && score === null),
-    done = (score ?? 0) >= 3;
-  const previous = day.retryOf
-    ? latestAnswer(snapshot.state.days[day.retryOf])
-    : undefined;
-  const hints = day.question && (
-    <>
-      <button
-        className="rubric-toggle"
-        aria-expanded={showRubric}
-        onClick={() => setShowRubric(!showRubric)}
-      >
-        <Lightbulb size={16} /> 思考提示{" "}
-        <ChevronDown size={14} className={showRubric ? "rotated" : ""} />
-      </button>
-      {showRubric && (
-        <ul className="rubric-list" lang="en">
-          {day.question.rubric.map((point) => (
-            <li key={point}>{point}</li>
-          ))}
-        </ul>
-      )}
-    </>
-  );
+  const items = interviewItems(day),
+    passedCount = items.filter((item) => (itemScore(item) ?? 0) >= 3).length,
+    done = interviewDone(day),
+    pending = items.some(
+      (item) => item.answers.length > 0 && itemScore(item) === null,
+    );
   return (
     <section className={`interview-section ${done ? "task-complete" : ""}`}>
       <div className="interview-top">
@@ -682,7 +630,11 @@ function Interview({ day }: { day: Day }) {
         </span>
         <div>
           <h2>每日面试题</h2>
-          <p>练习表达，也练习思考。</p>
+          <p>
+            {items.length > 1
+              ? `今天 ${items.length} 道，每道 3 分以上就算通过。`
+              : "练习表达，也练习思考。"}
+          </p>
         </div>
         <span className="task-status">
           {done ? (
@@ -691,149 +643,23 @@ function Interview({ day }: { day: Day }) {
             </>
           ) : pending ? (
             "待裁判审核"
+          ) : items.length > 1 ? (
+            `${passedCount} / ${items.length} 已通过`
           ) : (
             "今日必做"
           )}
         </span>
       </div>
-      {day.question ? (
-        <>
-          <div className="question-meta">
-            <span className="category-chip">{day.question.category}</span>
-            <span>
-              {
-                { Easy: "基础", Medium: "进阶", Hard: "挑战" }[
-                  day.question.difficulty
-                ]
-              }
-            </span>
-            <span>
-              {day.question.id.startsWith("project-")
-                ? "专属项目追问"
-                : day.question.id.toUpperCase()}
-            </span>
-            {day.retryOf && (
-              <span className="retry-chip">
-                <RotateCcw size={12} /> 回炉题
-              </span>
-            )}
-          </div>
-          <h3 className="english-question" lang="en">
-            {day.question.prompt}
-          </h3>
-          {day.retryOf && previous && (
-            <details className="retry-box">
-              <summary>
-                上次是 {day.retryOf}，{finalScore(previous) ?? "?"}{" "}
-                分。这次把上次缺的补上。
-              </summary>
-              <p>
-                <b>上次的评语</b>
-                {previous.override?.reason || previous.grade.tip}
-              </p>
-              {previous.grade.missing.length > 0 && (
-                <p>
-                  <b>上次缺的要点</b>
-                  {previous.grade.missing.join("；")}
-                </p>
-              )}
-              <p>
-                <b>上次的回答</b>
-                <span lang="en">{previous.text}</span>
-              </p>
-            </details>
-          )}
-          <InterviewWorkspace schema={day.question.schema}>
-            {!day.question.schema && hints}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void act({ type: "answer", date: day.date, text });
-              }}
-            >
-              <label className="answer-label" htmlFor="interview-answer">
-                你的回答<span>支持中文或英文作答</span>
-              </label>
-              <textarea
-                id="interview-answer"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                minLength={20}
-                maxLength={16000}
-                rows={7}
-                spellCheck={day.question.category === "SQL" ? false : undefined}
-                placeholder={
-                  day.question.category === "SQL"
-                    ? "在这里写 SQL 查询…\n再补充你的思路与边界情况。"
-                    : "Start with your approach, then explain the why…\n写下你的思路、权衡和例子。"
-                }
-                required
-              />
-              <div className="answer-footer">
-                <span>
-                  <LockKeyhole size={12} /> 草稿保存在本机{" "}
-                  <small>{text.length} / 16000</small>
-                </span>
-                <button
-                  className="button primary"
-                  disabled={
-                    busy ||
-                    pending ||
-                    day.answers.length >= 5 ||
-                    text.trim().length < 20
-                  }
-                >
-                  <Sparkles size={16} />
-                  {busy
-                    ? "正在保存与评审…"
-                    : pending
-                      ? "等待裁判审核"
-                      : answer
-                        ? "提交修改后的回答"
-                        : "提交 AI 评审"}
-                </button>
-              </div>
-              <p className="grading-note">
-                3 / 5 分即达标 · 每天最多 5 次提交 · AI 暂不可用时由裁判审核
-              </p>
-            </form>
-            {day.question.schema && hints}
-          </InterviewWorkspace>
-          {answer && (
-            <div
-              className={`feedback ${pending ? "pending" : done ? "passed" : "revise"}`}
-              role="status"
-            >
-              <div>
-                <strong>
-                  {pending ? "答案已保存，等待裁判" : `本次评审 ${score} / 5`}
-                </strong>
-                <span>
-                  {answer.override
-                    ? "裁判最终评分"
-                    : answer.grade.model || "人工审核"}
-                </span>
-              </div>
-              <p>{answer.override?.reason || answer.grade.tip}</p>
-              {answer.grade.missing.length > 0 && (
-                <>
-                  <small>可以补充的要点</small>
-                  <ul>
-                    {answer.grade.missing.map((point) => (
-                      <li key={point}>{point}</li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </div>
-          )}
-          {done && day.question.expectedQuery && (
-            <details className="schema">
-              <summary>查看参考查询（可能有其他正确写法）</summary>
-              <pre>{day.question.expectedQuery}</pre>
-            </details>
-          )}
-        </>
+      {items.length ? (
+        items.map((item, slot) => (
+          <QuestionCard
+            key={item.question.id}
+            day={day}
+            item={item}
+            slot={slot}
+            numbered={items.length > 1}
+          />
+        ))
       ) : (
         <div className="empty-state">
           <BookOpen size={30} />
@@ -847,420 +673,191 @@ function Interview({ day }: { day: Day }) {
     </section>
   );
 }
-function Bq({ day }: { day: Day }) {
+function QuestionCard({
+  day,
+  item,
+  slot,
+  numbered,
+}: {
+  day: Day;
+  item: InterviewItem;
+  slot: number;
+  numbered: boolean;
+}) {
   const { act, busy, snapshot } = useGame(),
-    task = day.bq;
+    { question } = item,
+    answer = item.answers.at(-1),
+    score = itemScore(item);
   const [text, setText] = useDraft(
-      `oq-${snapshot.mode}-bq-${day.date}`,
-      task?.text ?? "",
+      // The first question keeps the draft key it had when there was only one.
+      `oq-${snapshot.mode}-answer-${day.date}${slot ? `-${slot}` : ""}`,
+      answer?.text ?? "",
     ),
-    [practiced, setPracticed] = useState(task?.practiced ?? false);
-  const [expanded, setExpanded] = useState(false),
-    [retellId, setRetellId] = useState("bq-01");
-  const q = bank.find((q) => q.id === task?.questionId),
-    done = bqDone(task);
-  const alreadyRetold = Object.values(snapshot.state.days).some(
-    (d) => d.retell?.practiced && weekKey(d.date) === weekKey(day.date),
+    [showRubric, setShowRubric] = useState(false);
+  const pending = Boolean(answer && score === null),
+    done = (score ?? 0) >= 3;
+  const previous = item.retryOf
+    ? retrySource(snapshot.state, item.retryOf)?.answers.at(-1)
+    : undefined;
+  const fieldId = `interview-answer-${slot}`;
+  const hints = (
+    <>
+      <button
+        className="rubric-toggle"
+        aria-expanded={showRubric}
+        onClick={() => setShowRubric(!showRubric)}
+      >
+        <Lightbulb size={16} /> 思考提示{" "}
+        <ChevronDown size={14} className={showRubric ? "rotated" : ""} />
+      </button>
+      {showRubric && (
+        <ul className="rubric-list" lang="en">
+          {question.rubric.map((point) => (
+            <li key={point}>{point}</li>
+          ))}
+        </ul>
+      )}
+    </>
   );
   return (
-    <section className="bq-section">
-      <div className="bq-header">
-        <span className="task-icon green">
-          <Mic size={23} />
+    <div className={`interview-question ${done ? "passed" : ""}`}>
+      <div className="question-meta">
+        {numbered && (
+          <span className="question-number">
+            {done && <Check size={12} />}第 {slot + 1} 题
+          </span>
+        )}
+        <span className="category-chip">{question.category}</span>
+        <span>
+          {{ Easy: "基础", Medium: "进阶", Hard: "挑战" }[question.difficulty]}
         </span>
-        <div>
-          <h2>{task ? "把经历，讲成好故事" : "你的 12 个故事，已全部就绪"}</h2>
-          <p>
-            {task
-              ? `BQ ${task.questionId.split("-")[1]} / 12 · ${task.stage === 1 ? "阶段一：写 STAR 草稿" : "阶段二：开口练习"}`
-              : "BQ 已从每日最低要求中移除。每周复述一次，可以额外加分。"}
-          </p>
-        </div>
-        {task && (
-          <button
-            className="icon-button"
-            aria-label={expanded ? "收起 BQ 练习" : "展开 BQ 练习"}
-            aria-expanded={expanded}
-            onClick={() => setExpanded(!expanded)}
-          >
-            {done ? (
-              <Check size={21} />
-            ) : (
-              <ChevronDown size={21} className={expanded ? "rotated" : ""} />
-            )}
-          </button>
+        <span>
+          {question.id.startsWith("project-")
+            ? "专属项目追问"
+            : question.id.toUpperCase()}
+        </span>
+        {item.retryOf && (
+          <span className="retry-chip">
+            <RotateCcw size={12} /> 回炉题
+          </span>
         )}
       </div>
-      {task && q ? (
-        <>
-          <p className="bq-prompt" lang="en">
-            {q.prompt}
+      <h3 className="english-question" lang="en">
+        {question.prompt}
+      </h3>
+      {item.retryOf && previous && (
+        <details className="retry-box">
+          <summary>
+            上次是 {item.retryOf.split("#")[0]}，{finalScore(previous) ?? "?"}{" "}
+            分。这次把上次缺的补上。
+          </summary>
+          <p>
+            <b>上次的评语</b>
+            {previous.override?.reason || previous.grade.tip}
           </p>
-          {!expanded && (
-            <div className="bq-preview-footer">
-              <span>
-                {done
-                  ? "今日练习已完成"
-                  : task.stage === 1
-                    ? "Situation → Task → Action → Result"
-                    : "先大声讲一次，再勾选完成"}
-              </span>
-              <button className="text-button" onClick={() => setExpanded(true)}>
-                {done ? "查看练习" : "开始练习"}
-                <ChevronRight size={16} />
-              </button>
-            </div>
+          {previous.grade.missing.length > 0 && (
+            <p>
+              <b>上次缺的要点</b>
+              {previous.grade.missing.join("；")}
+            </p>
           )}
-          {expanded && (
-            <form
-              className="stack-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void act({ type: "bq", date: day.date, text, practiced });
-              }}
-            >
-              <label>
-                {task.stage === 1
-                  ? "你的 STAR 草稿"
-                  : "回顾草稿，或粘贴修订版（可选）"}
-                <textarea
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  rows={7}
-                  maxLength={16000}
-                  minLength={task.stage === 1 ? 40 : undefined}
-                  required={task.stage === 1}
-                  placeholder="Situation: …&#10;Task: …&#10;Action: …&#10;Result: …"
-                />
-              </label>
-              {task.stage === 2 && <VoiceRecorder day={day} />}
-              {task.stage === 2 && !task.voice && (
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={practiced}
-                    onChange={(e) => setPracticed(e.target.checked)}
-                    required
-                  />{" "}
-                  没法录音？勾选也行：我已经大声完整回答了一遍
-                </label>
-              )}
-              <button className="button primary" disabled={busy}>
-                {done
-                  ? "保存练习修改"
-                  : task.stage === 1
-                    ? "保存草稿，完成今日阶段"
-                    : "确认完成口述练习"}
-              </button>
-              <p className="muted small">
-                草稿与口述安排在不同日期，每天只需完成一个阶段。
-              </p>
-            </form>
-          )}
-        </>
-      ) : (
+          <p>
+            <b>上次的回答</b>
+            <span lang="en">{previous.text}</span>
+          </p>
+        </details>
+      )}
+      <InterviewWorkspace schema={question.schema}>
+        {!question.schema && hints}
         <form
-          className="stack-form"
           onSubmit={(e) => {
             e.preventDefault();
-            void act({
-              type: "retell",
-              date: day.date,
-              questionId: retellId,
-              text,
-              practiced: true,
-            });
+            void act({ type: "answer", date: day.date, slot, text });
           }}
         >
-          <label>
-            本周想复述哪个故事？
-            <select
-              value={retellId}
-              onChange={(e) => setRetellId(e.target.value)}
-            >
-              {bank
-                .filter((q) => q.category === "BQ")
-                .map((q) => (
-                  <option key={q.id} value={q.id}>
-                    {q.id.toUpperCase()} · {q.prompt}
-                  </option>
-                ))}
-            </select>
+          <label className="answer-label" htmlFor={fieldId}>
+            你的回答<span>支持中文或英文作答</span>
           </label>
-          <label className="checkbox-label">
-            <input type="checkbox" required /> 我已经大声复述了这个故事
-          </label>
-          <button className="button primary" disabled={busy || alreadyRetold}>
-            {alreadyRetold
-              ? "本周复述已记录"
-              : `记录每周复述 +${day.settings.bonusPoints} 积分`}
-          </button>
-        </form>
-      )}
-    </section>
-  );
-}
-type Recording = "idle" | "recording" | "recorded" | "uploading";
-const RECORD_LIMIT = 90;
-/** She tells the story out loud and hands the recording to the referee; at the practice stage that completes the task. */
-function VoiceRecorder({ day }: { day: Day }) {
-  const { refresh } = useGame(),
-    voice = day.bq?.voice;
-  const [status, setStatus] = useState<Recording>("idle"),
-    [seconds, setSeconds] = useState(0),
-    [preview, setPreview] = useState<string | null>(null),
-    [error, setError] = useState("");
-  const recorder = useRef<MediaRecorder | null>(null),
-    chunks = useRef<Blob[]>([]),
-    taken = useRef<Blob | null>(null),
-    timer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
-  const supported = typeof MediaRecorder !== "undefined";
-  // Chrome and Firefox record WebM/Opus; Safari records MP4.
-  const mime =
-    supported && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-      ? "audio/webm"
-      : "audio/mp4";
-  function stop() {
-    clearInterval(timer.current);
-    if (recorder.current?.state === "recording") recorder.current.stop();
-  }
-  async function start() {
-    setError("");
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream, {
-        mimeType:
-          mime === "audio/webm" ? "audio/webm;codecs=opus" : "audio/mp4",
-      });
-      chunks.current = [];
-      rec.ondataavailable = (e) => chunks.current.push(e.data);
-      rec.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunks.current, { type: mime });
-        taken.current = blob;
-        setPreview(URL.createObjectURL(blob));
-        setStatus("recorded");
-      };
-      rec.start(250);
-      recorder.current = rec;
-      const startedAt = Date.now();
-      setSeconds(0);
-      setStatus("recording");
-      timer.current = setInterval(() => {
-        const s = Math.floor((Date.now() - startedAt) / 1000);
-        setSeconds(s);
-        if (s >= RECORD_LIMIT) stop();
-      }, 250);
-    } catch {
-      setError(
-        "没拿到麦克风，或者这个浏览器不支持录音。可以直接勾选下面的确认。",
-      );
-    }
-  }
-  async function upload() {
-    if (!taken.current) return;
-    setStatus("uploading");
-    const audio = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).split(",")[1]);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(taken.current!);
-    });
-    try {
-      const res = await fetch("/api/bq/voice", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          date: day.date,
-          mime,
-          seconds: Math.max(1, seconds),
-          audio,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      toast.success("录音已交给裁判，今天的口述完成了");
-      await refresh();
-      taken.current = null;
-      setPreview(null);
-      setStatus("idle");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "上传失败，请重试");
-      setStatus("recorded");
-    }
-  }
-  return (
-    <div className="voice-recorder">
-      <div className="voice-head">
-        <Mic size={16} />
-        <strong>录一段给裁判听</strong>
-        <small>最多 {RECORD_LIMIT} 秒。讲一遍，比勾选更有用。</small>
-      </div>
-      {voice && status === "idle" && (
-        <div className="voice-saved">
-          <audio
-            controls
-            preload="none"
-            src={`/api/bq/voice?date=${day.date}`}
+          <textarea
+            id={fieldId}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            minLength={20}
+            maxLength={16000}
+            rows={7}
+            spellCheck={question.category === "SQL" ? false : undefined}
+            placeholder={
+              question.category === "SQL"
+                ? "在这里写 SQL 查询…\n再补充你的思路与边界情况。"
+                : "Start with your approach, then explain the why…\n写下你的思路、权衡和例子。"
+            }
+            required
           />
-          <span>
-            <Check size={14} /> 已交给裁判 · {voice.seconds} 秒
-          </span>
-        </div>
-      )}
-      {status === "idle" && (
-        <div>
-          <button
-            type="button"
-            className="button secondary"
-            onClick={() => void start()}
-            disabled={!supported}
-          >
-            <Mic size={16} /> {voice ? "重新录一段" : "开始录音"}
-          </button>
-        </div>
-      )}
-      {status === "recording" && (
-        <div className="voice-live">
-          <span className="rec-dot" aria-hidden="true" /> 录音中 {seconds} 秒
-          <button type="button" className="button primary" onClick={stop}>
-            <Square size={14} /> 停止
-          </button>
-        </div>
-      )}
-      {status === "recorded" && preview && (
-        <div className="voice-review">
-          <audio controls src={preview} />
-          <button
-            type="button"
-            className="button primary"
-            onClick={() => void upload()}
-          >
-            交给裁判
-          </button>
-          <button
-            type="button"
-            className="text-button"
-            onClick={() => {
-              setPreview(null);
-              setStatus("idle");
-            }}
-          >
-            重录
-          </button>
-        </div>
-      )}
-      {status === "uploading" && <p className="muted small">正在上传…</p>}
-      {error && (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      )}
-    </div>
-  );
-}
-function English({ day }: { day: Day }) {
-  const { act, busy } = useGame(),
-    target = day.settings.episodes ?? 0,
-    saved = day.episodes ?? 0,
-    done = episodesDone(day);
-  const [count, setCount] = useState(saved),
-    [note, setNote] = useState(day.episodeNote ?? ""),
-    [expanded, setExpanded] = useState(false);
-  if (!target) return null;
-  const status =
-    saved === target
-      ? `看完 ${target} 集，今天的英语任务完成！`
-      : saved > target
-        ? `已记录 ${saved} 集，超过了 ${target} 集，今天的英语任务不算完成。`
-        : saved
-          ? `已记录 ${saved} 集，还差 ${target - saved} 集。`
-          : `看完后记录为 ${target} 集并保存。`;
-  return (
-    <section className="bq-section english-section">
-      <div className="bq-header">
-        <span className="task-icon blue">
-          <Tv size={23} />
-        </span>
-        <div>
-          <h2>英语表达和听力</h2>
-          <p>每天看 {target} 集英文电视剧，看完记下来就算完成；多看不加分。</p>
-        </div>
-        <button
-          className="icon-button"
-          aria-label={expanded ? "收起看剧记录" : "展开看剧记录"}
-          aria-expanded={expanded}
-          onClick={() => setExpanded(!expanded)}
-        >
-          {done ? (
-            <Check size={21} />
-          ) : (
-            <ChevronDown size={21} className={expanded ? "rotated" : ""} />
-          )}
-        </button>
-      </div>
-      {!expanded && (
-        <div className="bq-preview-footer">
-          <span className={saved > target ? "over" : ""}>{status}</span>
-          <button className="text-button" onClick={() => setExpanded(true)}>
-            {done ? "查看记录" : "记录看剧"}
-            <ChevronRight size={16} />
-          </button>
-        </div>
-      )}
-      {expanded && (
-        <form
-          className="stack-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void act({ type: "episodes", date: day.date, count, note });
-          }}
-        >
-          <div
-            className="episode-stepper"
-            role="group"
-            aria-label="今天看了几集"
-          >
+          <div className="answer-footer">
+            <span>
+              <LockKeyhole size={12} /> 草稿保存在本机{" "}
+              <small>{text.length} / 16000</small>
+            </span>
             <button
-              type="button"
-              className="icon-button"
-              aria-label="少记一集"
-              disabled={count <= 0}
-              onClick={() => setCount(count - 1)}
+              className="button primary"
+              disabled={
+                busy ||
+                pending ||
+                item.answers.length >= 5 ||
+                text.trim().length < 20
+              }
             >
-              <Minus size={18} />
-            </button>
-            <strong aria-live="polite">{count}</strong>
-            <span>集</span>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="多记一集"
-              disabled={count >= 20}
-              onClick={() => setCount(count + 1)}
-            >
-              <Plus size={18} />
+              <Sparkles size={16} />
+              {busy
+                ? "正在保存与评审…"
+                : pending
+                  ? "等待裁判审核"
+                  : answer
+                    ? "提交修改后的回答"
+                    : "提交 AI 评审"}
             </button>
           </div>
-          <label>
-            剧名 / 今天学到的表达 <span className="optional">可选</span>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={2}
-              maxLength={500}
-              placeholder="例如：Friends S01E03 · I'm on it."
-            />
-          </label>
-          <p className={saved > target ? "form-error small" : "muted small"}>
-            {status}
+          <p className="grading-note">
+            3 / 5 分即达标 · 每道题最多 5 次提交 · AI 暂不可用时由裁判审核
           </p>
-          <button className="button primary" disabled={busy}>
-            保存看剧记录
-          </button>
         </form>
+        {question.schema && hints}
+      </InterviewWorkspace>
+      {answer && (
+        <div
+          className={`feedback ${pending ? "pending" : done ? "passed" : "revise"}`}
+          role="status"
+        >
+          <div>
+            <strong>
+              {pending ? "答案已保存，等待裁判" : `本次评审 ${score} / 5`}
+            </strong>
+            <span>
+              {answer.override
+                ? "裁判最终评分"
+                : answer.grade.model || "人工审核"}
+            </span>
+          </div>
+          <p>{answer.override?.reason || answer.grade.tip}</p>
+          {answer.grade.missing.length > 0 && (
+            <>
+              <small>可以补充的要点</small>
+              <ul>
+                {answer.grade.missing.map((point) => (
+                  <li key={point}>{point}</li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
       )}
-    </section>
+      {done && question.expectedQuery && (
+        <details className="schema">
+          <summary>查看参考查询（可能有其他正确写法）</summary>
+          <pre>{question.expectedQuery}</pre>
+        </details>
+      )}
+    </div>
   );
 }
 function StudyCard() {

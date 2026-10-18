@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Coffee,
   Flame,
   FolderOpen,
   Gift,
@@ -28,11 +29,12 @@ import {
 import {
   addDays,
   bqDone,
-  completedBq,
   coreOf,
   episodesDone,
   finalScore,
-  latestAnswer,
+  interviewDone,
+  interviewItems,
+  itemScore,
   requirements,
   RETRY_DAYS,
   retryQueue,
@@ -150,6 +152,8 @@ export function History() {
                       <span>
                         {result.status === "frozen" ? (
                           <Snowflake size={18} />
+                        ) : result.status === "excused" ? (
+                          <Coffee size={18} />
                         ) : result.status === "met" ||
                           result.status === "gold" ? (
                           <Check size={18} />
@@ -170,7 +174,14 @@ export function History() {
           </div>
           <div className="calendar-legend">
             {(
-              ["met", "gold", "missed", "frozen", "pending"] as DayStatus[]
+              [
+                "met",
+                "gold",
+                "missed",
+                "frozen",
+                "excused",
+                "pending",
+              ] as DayStatus[]
             ).map((s) => (
               <Status key={s} status={s} />
             ))}
@@ -201,6 +212,15 @@ export function History() {
                 <small> 次</small>
               </strong>
             </div>
+            {results.some((d) => d.status === "excused") && (
+              <div>
+                <span>请假</span>
+                <strong>
+                  {results.filter((d) => d.status === "excused").length}
+                  <small> 天</small>
+                </strong>
+              </div>
+            )}
           </div>
           <p className="muted">
             点击有记录的日期，查看当日任务、答案与评审。待审核的日期会保留结果，等裁判决定后再计算连胜。
@@ -223,7 +243,8 @@ export function DayDetail({
   const { snapshot } = useGame(),
     day = snapshot.state.days[date],
     result = snapshot.summary.days.find((d) => d.date === date)!;
-  const bq = (data as Question[]).find((q) => q.id === day.bq?.questionId);
+  const bq = (data as Question[]).find((q) => q.id === day.bq?.questionId),
+    items = interviewItems(day);
   return (
     <Modal title={`${date} 的训练记录`} close={close} className="day-detail">
       <div className="day-detail-status">
@@ -232,6 +253,20 @@ export function DayDetail({
           +{result.points} 积分 · 连胜 {result.streak} 天
         </span>
       </div>
+      {day.excused && (
+        <p className="excused-note">
+          <Coffee size={16} />
+          <span>
+            <strong>请假：{day.excused.reason}</strong>
+            {result.status === "excused"
+              ? "这一天不加分、不扣钱，也不打断连胜。"
+              : "她这天完成了任务，仍按完成计算。"}
+          </span>
+        </p>
+      )}
+      {snapshot.role === "referee" && date <= snapshot.today && (
+        <ExcuseForm date={date} excused={Boolean(day.excused)} />
+      )}
       <div className="day-detail-counts">
         <div>
           申请
@@ -246,74 +281,92 @@ export function DayDetail({
           </strong>
         </div>
         <div>
-          BQ
+          面试题
           <strong>
-            {!day.bq ? "全部毕业" : day.bq.completedAt ? "已完成" : "未完成"}
+            {items.filter((item) => (itemScore(item) ?? 0) >= 3).length} /{" "}
+            {items.length || 1} 通过
           </strong>
         </div>
-        <div>
-          英语看剧
-          <strong>
-            {day.settings.episodes
-              ? `${day.episodes ?? 0} / ${day.settings.episodes} 集`
-              : "不要求"}
-          </strong>
-        </div>
+        {day.bq && (
+          <div>
+            BQ
+            <strong>{day.bq.completedAt ? "已完成" : "未完成"}</strong>
+          </div>
+        )}
+        {Boolean(day.settings.episodes) && (
+          <div>
+            英语看剧
+            <strong>
+              {day.episodes ?? 0} / {day.settings.episodes} 集
+            </strong>
+          </div>
+        )}
       </div>
-      <h3>
-        面试题 <span className="muted">{day.question?.category}</span>
-      </h3>
-      <p className="english-question" lang="en">
-        {day.question?.prompt || "当天尚未录入项目"}
-      </p>
-      {day.answers.length === 0 ? (
-        <p className="muted">这一天没有提交答案。</p>
-      ) : (
-        day.answers.map((answer, i) => (
-          <article className="answer-review" key={answer.id}>
-            <div className="review-meta">
-              <strong>第 {i + 1} 次回答</strong>
-              <span>
-                {finalScore(answer) === null
-                  ? "等待人工审核"
-                  : `${finalScore(answer)} / 5 分`}
-              </span>
-            </div>
-            <p className="answer-text">{answer.text}</p>
-            <div className="review-ai">
-              <strong>
-                AI 反馈{" "}
-                {answer.grade.score !== null && `· ${answer.grade.score}/5`}
-              </strong>
-              <p>{answer.grade.tip}</p>
-              {answer.grade.missing.length > 0 && (
-                <ul>
-                  {answer.grade.missing.map((p) => (
-                    <li key={p}>{p}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            {answer.override && (
-              <div className="override-note">
-                <ShieldCheck size={16} />
-                <p>
-                  <strong>裁判最终评分：{answer.override.score} / 5</strong>
-                  <br />
-                  {answer.override.reason}
-                </p>
-              </div>
-            )}
-            {snapshot.role === "referee" && (
-              <ReviewForm
-                date={date}
-                answerId={answer.id}
-                score={finalScore(answer) ?? 3}
-              />
-            )}
-          </article>
-        ))
+      {items.length === 0 && (
+        <>
+          <h3>面试题</h3>
+          <p className="english-question">当天尚未录入项目</p>
+        </>
       )}
+      {items.map((item, slot) => (
+        <div className="detail-question" key={item.question.id}>
+          <h3>
+            面试题{items.length > 1 && ` · 第 ${slot + 1} 题`}{" "}
+            <span className="muted">{item.question.category}</span>
+          </h3>
+          <p className="english-question" lang="en">
+            {item.question.prompt}
+          </p>
+          {item.answers.length === 0 ? (
+            <p className="muted">这道题没有提交答案。</p>
+          ) : (
+            item.answers.map((answer, i) => (
+              <article className="answer-review" key={answer.id}>
+                <div className="review-meta">
+                  <strong>第 {i + 1} 次回答</strong>
+                  <span>
+                    {finalScore(answer) === null
+                      ? "等待人工审核"
+                      : `${finalScore(answer)} / 5 分`}
+                  </span>
+                </div>
+                <p className="answer-text">{answer.text}</p>
+                <div className="review-ai">
+                  <strong>
+                    AI 反馈{" "}
+                    {answer.grade.score !== null && `· ${answer.grade.score}/5`}
+                  </strong>
+                  <p>{answer.grade.tip}</p>
+                  {answer.grade.missing.length > 0 && (
+                    <ul>
+                      {answer.grade.missing.map((p) => (
+                        <li key={p}>{p}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                {answer.override && (
+                  <div className="override-note">
+                    <ShieldCheck size={16} />
+                    <p>
+                      <strong>裁判最终评分：{answer.override.score} / 5</strong>
+                      <br />
+                      {answer.override.reason}
+                    </p>
+                  </div>
+                )}
+                {snapshot.role === "referee" && (
+                  <ReviewForm
+                    date={date}
+                    answerId={answer.id}
+                    score={finalScore(answer) ?? 3}
+                  />
+                )}
+              </article>
+            ))
+          )}
+        </div>
+      ))}
       {day.bq && (
         <div className="detail-bq">
           <h3>BQ · {day.bq.stage === 1 ? "STAR 草稿" : "口述练习"}</h3>
@@ -436,6 +489,49 @@ function ReviewForm({
     </form>
   );
 }
+/** The referee gives her a day off (illness, a trip): it neither counts nor breaks the streak. */
+function ExcuseForm({ date, excused }: { date: string; excused: boolean }) {
+  const { act, busy } = useGame(),
+    [reason, setReason] = useState("生病了");
+  if (excused)
+    return (
+      <div className="excuse-form">
+        <button
+          className="text-button"
+          disabled={busy}
+          onClick={() => act({ type: "excuse", date, reason: "" })}
+        >
+          取消请假，按原来的完成情况计算
+        </button>
+      </div>
+    );
+  return (
+    <form
+      className="excuse-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void act({ type: "excuse", date, reason });
+      }}
+    >
+      <label>
+        请假原因
+        <input
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          minLength={1}
+          maxLength={100}
+          required
+        />
+      </label>
+      <button className="button" disabled={busy || !reason.trim()}>
+        <Coffee size={16} /> 请假，这天不算
+      </button>
+      <span className="muted small">
+        不加分、不扣钱、不用冻结卡，连胜接着往下算。如果她其实完成了，仍按达标计算。
+      </span>
+    </form>
+  );
+}
 export function Stats() {
   const { snapshot } = useGame(),
     { summary, state } = snapshot;
@@ -447,8 +543,8 @@ export function Stats() {
       }),
       { apps: 0, contacts: 0 },
     );
-  const progress = completedBq(state),
-    categories = ["ML", "AI/LLM", "SQL", "Python", "Project"],
+  const categories = ["ML", "AI/LLM", "SQL", "Python", "Project"],
+    asked = days.flatMap(interviewItems),
     queue = retryQueue(state);
   return (
     <>
@@ -532,13 +628,15 @@ export function Stats() {
         <section className="white-panel">
           <SectionHeading
             title="面试训练分布"
-            note="每个类别按日期计数，最终评分 ≥ 3 为通过。"
+            note="每个类别按题目计数，最终评分 ≥ 3 为通过。"
           />
           <div className="category-stats">
             {categories.map((c) => {
-              const assigned = days.filter((d) => d.question?.category === c),
+              const assigned = asked.filter(
+                  (item) => item.question.category === c,
+                ),
                 passed = assigned.filter(
-                  (d) => (finalScore(latestAnswer(d)) ?? 0) >= 3,
+                  (item) => (itemScore(item) ?? 0) >= 3,
                 ).length;
               return (
                 <div key={c}>
@@ -564,12 +662,9 @@ export function Stats() {
               <p>低于 4 分的题，5 天后会在同类别的日子再出一次。</p>
               <ul>
                 {queue.map((d) => (
-                  <li key={d.date}>
-                    <span className="category-chip">
-                      {d.question!.category}
-                    </span>
-                    {d.question!.id.toUpperCase()} ·{" "}
-                    {finalScore(latestAnswer(d))} 分 ·{" "}
+                  <li key={d.key}>
+                    <span className="category-chip">{d.question.category}</span>
+                    {d.question.id.toUpperCase()} · {itemScore(d)} 分 ·{" "}
                     {addDays(d.date, RETRY_DAYS).slice(5).replace("-", "/")} 起
                   </li>
                 ))}
@@ -603,33 +698,6 @@ export function Stats() {
                       ? `${earned.date} 已解锁`
                       : `还需 ${Math.max(0, r.streak - summary.streak)} 天`}
                   </p>
-                </div>
-              );
-            })}
-        </div>
-      </section>
-      <section className="white-panel">
-        <SectionHeading
-          title="12 个故事，24 次进步"
-          note={`已完成 ${summary.bqCompleted} 道 BQ 的草稿与口述。全部完成后，不再计入每日最低要求。`}
-        />
-        <div className="bq-bank-list">
-          {(data as Question[])
-            .filter((q) => q.category === "BQ")
-            .map((q) => {
-              const p = progress.get(q.id);
-              return (
-                <div key={q.id}>
-                  <span>{q.id.split("-")[1]}</span>
-                  <p lang="en">{q.prompt}</p>
-                  <span className={p?.draft ? "stage-done" : ""}>
-                    {p?.draft ? <Check size={14} /> : <Pencil size={14} />}
-                    {p?.draft ? "草稿完成" : "待写草稿"}
-                  </span>
-                  <span className={p?.practice ? "stage-done" : ""}>
-                    {p?.practice ? <Check size={14} /> : <Clock3 size={14} />}
-                    {p?.practice ? "口述完成" : "待练口述"}
-                  </span>
                 </div>
               );
             })}
@@ -820,10 +888,11 @@ export function Referee() {
     [redeemOpen, setRedeemOpen] = useState(false);
   if (snapshot.role !== "referee") return <Restricted />;
   const { summary, state } = snapshot,
-    pending = Object.values(state.days).filter((d) => {
-      const answer = latestAnswer(d);
-      return answer && finalScore(answer) === null;
-    });
+    pending = Object.values(state.days).filter((d) =>
+      interviewItems(d).some(
+        (item) => item.answers.length > 0 && itemScore(item) === null,
+      ),
+    );
   const days = [...summary.days]
     .reverse()
     .filter(
@@ -831,7 +900,7 @@ export function Referee() {
         filter === "all" ||
         (filter === "review"
           ? pending.some((p) => p.date === d.date)
-          : d.status === "missed" || d.status === "frozen"),
+          : ["missed", "frozen", "excused"].includes(d.status)),
     );
   return (
     <>
@@ -894,7 +963,7 @@ export function Referee() {
             {[
               ["all", "全部"],
               ["review", `待评审 ${pending.length}`],
-              ["missed", "未达标 / 冻结"],
+              ["missed", "未达标 / 冻结 / 请假"],
             ].map(([value, label]) => (
               <button
                 key={value}
@@ -924,7 +993,8 @@ export function Referee() {
           )}
           {days.map((d) => {
             const day = state.days[d.date],
-              score = finalScore(latestAnswer(day)),
+              items = interviewItems(day),
+              scores = items.map(itemScore),
               req = requirements(day);
             return (
               <button
@@ -936,7 +1006,7 @@ export function Referee() {
                   {d.date}
                   <small>
                     {day.question?.category || "项目深挖"}
-                    {day.retryOf && " · 回炉"}
+                    {items.some((item) => item.retryOf) && " · 回炉"}
                   </small>
                 </strong>
                 <span>
@@ -950,11 +1020,18 @@ export function Referee() {
                   </small>
                 </span>
                 <span>
-                  {score === null
-                    ? day.answers.length
-                      ? "待评审"
-                      : "未作答"
-                    : `${score} / 5`}
+                  {items.length > 1
+                    ? items
+                        .map(
+                          (item, i) =>
+                            scores[i] ?? (item.answers.length ? "待评" : "—"),
+                        )
+                        .join(" · ")
+                    : scores[0] === null || scores[0] === undefined
+                      ? items[0]?.answers.length
+                        ? "待评审"
+                        : "未作答"
+                      : `${scores[0]} / 5`}
                 </span>
                 <Status status={d.status} />
                 <ChevronRight size={18} />
@@ -1011,6 +1088,7 @@ export function Referee() {
 }
 const REFEREE_ACTIONS = [
   "override",
+  "excuse",
   "settings",
   "redeem",
   "playerName",
@@ -1098,11 +1176,10 @@ function RefereeStats() {
     ["冻结卡", `${summary.freezes} / 2`],
     [
       "达标天数",
-      `${summary.days.filter((d) => d.status === "met" || d.status === "gold").length} / ${summary.days.filter((d) => d.status !== "open").length}`,
+      `${summary.days.filter((d) => d.status === "met" || d.status === "gold").length} / ${summary.days.filter((d) => d.status !== "open" && d.status !== "excused").length}`,
     ],
     ["累计申请", total((d) => d.applications)],
     ["累计联系", total((d) => d.contacts)],
-    ["累计看剧", `${total((d) => d.episodes ?? 0)} 集`],
   ];
   return (
     <div className="referee-stats">
@@ -1119,8 +1196,7 @@ function TodayLive({ open }: { open: (date: string) => void }) {
   const { state, today, summary, serverTime } = useGame().snapshot,
     day = state.days[today],
     s = day.settings,
-    answer = latestAnswer(day),
-    score = finalScore(answer),
+    items = interviewItems(day),
     watched = day.episodes ?? 0,
     core = coreOf(s);
   const left = Math.max(
@@ -1140,16 +1216,28 @@ function TodayLive({ open }: { open: (date: string) => void }) {
       done: day.contacts >= s.contacts,
       core: core.contacts,
     },
-    {
-      label: `面试题 · ${day.question?.category ?? "项目深挖"}`,
-      value: !answer
-        ? "未作答"
-        : score === null
-          ? "等你评审"
-          : `${score} / 5 分`,
-      done: (score ?? 0) >= 3,
-      core: core.interview,
-    },
+    ...(items.length
+      ? items.map((item, i) => {
+          const score = itemScore(item);
+          return {
+            label: `面试题${items.length > 1 ? ` ${i + 1}` : ""} · ${item.question.category === "Project" ? "项目深挖" : item.question.category}`,
+            value: !item.answers.length
+              ? "未作答"
+              : score === null
+                ? "等你评审"
+                : `${score} / 5 分`,
+            done: (score ?? 0) >= 3,
+            core: core.interview,
+          };
+        })
+      : [
+          {
+            label: "面试题 · 项目深挖",
+            value: "等她录入项目",
+            done: interviewDone(day),
+            core: core.interview,
+          },
+        ]),
     ...(day.bq
       ? [
           {
@@ -1237,9 +1325,9 @@ function PlayerActivity() {
       ),
     ),
     answers = new Map(
-      Object.values(state.days).flatMap((d) =>
-        d.answers.map((a) => [a.id, a] as const),
-      ),
+      Object.values(state.days)
+        .flatMap(interviewItems)
+        .flatMap((item) => item.answers.map((a) => [a.id, a] as const)),
     );
   const describe = (a: Audit) => {
     switch (a.action) {
@@ -1584,8 +1672,6 @@ function PlayerNameForm({
 }
 const CORE_TASKS: [TaskKey, string][] = [
   ["interview", "每日面试题"],
-  ["bq", "BQ 故事"],
-  ["episodes", "英语看剧"],
   ["applications", "投递申请"],
   ["contacts", "联系新朋友"],
 ];
@@ -1621,12 +1707,7 @@ function SettingsForm({
       min: 0,
       max: 10000,
     },
-    {
-      key: "episodes",
-      label: "每天看剧集数（至少，0 为不要求）",
-      min: 0,
-      max: 5,
-    },
+    { key: "questions", label: "每天面试题数量", min: 1, max: 5 },
     { key: "bonusApplications", label: "申请加分门槛", min: 1, max: 100 },
     { key: "bonusContacts", label: "联系加分门槛", min: 1, max: 1000 },
     { key: "basePoints", label: "达标基础积分", min: 1, max: 1000 },
@@ -1664,9 +1745,17 @@ function SettingsForm({
             (s as unknown as Record<string, unknown>)[field.key] = Number(
               form.get(field.key),
             );
-          s.core = Object.fromEntries(
-            CORE_TASKS.map(([key]) => [key, form.get(`core-${key}`) === "on"]),
-          ) as Settings["core"] & object;
+          // BQ and the English task are retired; old days keep their own settings.
+          s.core = {
+            ...Object.fromEntries(
+              CORE_TASKS.map(([key]) => [
+                key,
+                form.get(`core-${key}`) === "on",
+              ]),
+            ),
+            bq: false,
+            episodes: false,
+          } as Settings["core"] & object;
           s.study = {
             ...withDefaults(settings.study),
             minutes: Number(form.get("study-default-minutes")),

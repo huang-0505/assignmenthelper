@@ -3,9 +3,8 @@ import {
   advance,
   addDays,
   bqDone,
-  completedBq,
   evaluate,
-  latestAnswer,
+  interviewItems,
   weekKey,
 } from "./engine";
 import type { StudyOutcome } from "./study";
@@ -60,6 +59,7 @@ const settingsSchema = z
     weeklyApplications: z.number().int().min(0).max(1000),
     weeklyContacts: z.number().int().min(0).max(10000),
     episodes: z.number().int().min(0).max(5),
+    questions: z.number().int().min(1).max(5),
     bonusApplications: z.number().int().min(1).max(100),
     bonusContacts: z.number().int().min(1).max(1000),
     basePoints: z.number().int().min(1).max(1000),
@@ -136,26 +136,9 @@ export const actionSchema = z.discriminatedUnion("type", [
   z.object({
     ...common,
     type: z.literal("answer"),
+    /** Which of the day's questions; missing means the first. */
+    slot: z.number().int().min(0).max(4).optional(),
     text: z.string().trim().min(20).max(16000),
-  }),
-  z.object({
-    ...common,
-    type: z.literal("bq"),
-    text: z.string().trim().max(16000),
-    practiced: z.boolean(),
-  }),
-  z.object({
-    ...common,
-    type: z.literal("episodes"),
-    count: z.number().int().min(0).max(20),
-    note: z.string().trim().max(500),
-  }),
-  z.object({
-    ...common,
-    type: z.literal("retell"),
-    questionId: short.min(1),
-    text: z.string().trim().max(16000),
-    practiced: z.literal(true),
   }),
   z.object({
     id,
@@ -176,6 +159,12 @@ export const actionSchema = z.discriminatedUnion("type", [
     answerId: id,
     score: z.number().int().min(1).max(5),
     reason: z.string().trim().min(3).max(1000),
+  }),
+  z.object({
+    ...common,
+    type: z.literal("excuse"),
+    /** Empty takes the day off back. */
+    reason: z.string().trim().max(100, "原因最多 100 个字"),
   }),
   z.object({ id, type: z.literal("redeem") }),
   z.object({ id, type: z.literal("playerName"), name: nameSchema }),
@@ -218,6 +207,7 @@ export function applyAction(
   const refereeAction = [
     "settings",
     "override",
+    "excuse",
     "redeem",
     "playerName",
     "coachLines",
@@ -231,7 +221,7 @@ export function applyAction(
   // A description can be added to an older application; it changes no day's outcome.
   if (
     "date" in action &&
-    !["override", "jd"].includes(action.type) &&
+    !["override", "jd", "excuse"].includes(action.type) &&
     action.date !== today
   )
     throw new Error("这一天已经结束，请刷新后记录今天的进度");
@@ -281,14 +271,14 @@ export function applyAction(
     }
     case "answer": {
       if (!day.question) throw new Error("请先录入项目，再开始今天的项目追问");
-      if (day.answers.length >= 5)
-        throw new Error("今天已提交 5 次，请让裁判审核现有答案");
-      if (
-        latestAnswer(day)?.grade.status === "pending" &&
-        !latestAnswer(day)?.override
-      )
+      const item = interviewItems(day)[action.slot ?? 0];
+      if (!item) throw new Error("找不到这道题，请刷新后再试");
+      if (item.answers.length >= 5)
+        throw new Error("这道题已提交 5 次，请让裁判审核现有答案");
+      const last = item.answers.at(-1);
+      if (last?.grade.status === "pending" && !last.override)
         throw new Error("上次答案正在等待裁判审核，请先完成审核");
-      day.answers.push({
+      item.answers.push({
         id: action.id,
         text: action.text,
         submittedAt: now,
@@ -300,41 +290,6 @@ export function applyAction(
           status: "pending",
         },
       });
-      break;
-    }
-    case "bq": {
-      if (!day.bq) throw new Error("你已完成全部 BQ，可以进行每周复述");
-      if (day.bq.stage === 1 && action.text.length < 40)
-        throw new Error("STAR 草稿至少需要 40 个字符");
-      if (day.bq.stage === 2 && !action.practiced)
-        throw new Error("请先完成口述练习并勾选确认");
-      day.bq.text = action.text;
-      day.bq.practiced = action.practiced;
-      day.bq.completedAt = now;
-      break;
-    }
-    case "episodes":
-      day.episodes = action.count;
-      day.episodeNote = action.note;
-      break;
-    case "retell": {
-      const completed = completedBq(state, today);
-      if (
-        [...completed.values()].filter((p) => p.practice).length !== 12 ||
-        !completed.get(action.questionId)?.practice
-      )
-        throw new Error("完成全部 12 道 BQ 后才能获得复述奖励");
-      if (
-        Object.values(state.days).some(
-          (d) => d.retell?.practiced && weekKey(d.date) === weekKey(today),
-        )
-      )
-        throw new Error("本周已记录一次复述");
-      day.retell = {
-        questionId: action.questionId,
-        text: action.text,
-        practiced: true,
-      };
       break;
     }
     case "project": {
@@ -350,7 +305,9 @@ export function applyAction(
       state.nextSettings = action.settings;
       break;
     case "override": {
-      const answer = day.answers.find((a) => a.id === action.answerId);
+      const answer = interviewItems(day)
+        .flatMap((item) => item.answers)
+        .find((a) => a.id === action.answerId);
       if (!answer) throw new Error("找不到需要审核的答案");
       answer.override = {
         score: action.score,
@@ -360,6 +317,12 @@ export function applyAction(
       };
       break;
     }
+    case "excuse":
+      if (action.date > today) throw new Error("只能给今天或之前的日子请假");
+      if (action.reason)
+        day.excused = { reason: action.reason, at: now, by: actor };
+      else delete day.excused;
+      break;
     case "redeem": {
       const summary = evaluate(state, now, study);
       if (summary.days.some((d) => d.status === "pending"))
@@ -395,14 +358,16 @@ export function applyAction(
           ? `发布了 ${action.plan.weekOf} 这一周的训练计划`
           : action.type === "override"
             ? `${action.score}/5: ${action.reason}`
-            : action.type === "settings"
-              ? "设置于下一训练日生效"
-              : action.type === "redeem"
-                ? "裁判确认已请客，清空已累计罚金"
-                : action.type === "playerName"
-                  ? `玩家名字改为「${action.name}」`
-                  : action.type === "episodes"
-                    ? `看剧 ${action.count} 集`
+            : action.type === "excuse"
+              ? action.reason
+                ? `请假，这天不算：${action.reason}`
+                : "取消了请假"
+              : action.type === "settings"
+                ? "设置于下一训练日生效"
+                : action.type === "redeem"
+                  ? "裁判确认已请客，清空已累计罚金"
+                  : action.type === "playerName"
+                    ? `玩家名字改为「${action.name}」`
                     : action.type === "coachLines"
                       ? "修改了学习模式教练台词"
                       : action.type === "coachNote"
@@ -419,7 +384,12 @@ export function applyGrade(
   answerId: string,
   grade: Grade,
 ) {
-  const answer = state.days[date]?.answers.find((a) => a.id === answerId);
+  const day = state.days[date];
+  const answer =
+    day &&
+    interviewItems(day)
+      .flatMap((item) => item.answers)
+      .find((a) => a.id === answerId);
   if (!answer) throw new Error("找不到已保存的答案");
   // An AI response arriving after a referee decision never removes the referee's override.
   if (answer.grade.status === "pending") answer.grade = grade;

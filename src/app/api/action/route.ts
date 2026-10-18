@@ -1,4 +1,5 @@
 import { applyAction, applyGrade, actionSchema } from "@/lib/actions";
+import { interviewItems } from "@/lib/engine";
 import { gradeAnswer, llmConfig } from "@/lib/grading";
 import { bank } from "@/lib/server/bank";
 import {
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
     }, now);
     if (action.type === "answer" && freshAnswer) {
       const grade = await gradeAnswer(
-        state.days[action.date].question!,
+        interviewItems(state.days[action.date])[action.slot ?? 0].question,
         action.text,
         llmConfig(),
       );

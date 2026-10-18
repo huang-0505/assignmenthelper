@@ -176,7 +176,7 @@ function PlanForm({ week, plan }: { week: string; plan?: WeeklyPlan }) {
             rows={3}
             maxLength={500}
             defaultValue={plan?.focus ?? ""}
-            placeholder="技术短板、项目复盘、BQ 或英语表达…"
+            placeholder="技术短板、项目复盘、面试题…"
           />
         </label>
       </div>

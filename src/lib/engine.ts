@@ -7,6 +7,7 @@ import type {
   CoreTasks,
   Day,
   GameState,
+  InterviewItem,
   Project,
   Question,
   Settings,
@@ -14,13 +15,13 @@ import type {
   TaskKey,
 } from "./types";
 
-/** Outreach is a numbers game that runs on a weekly rhythm; the streak asks for the study tasks. */
+/** Outreach is a numbers game that runs on a weekly rhythm; the streak asks for the interview questions. */
 export const DEFAULT_CORE: CoreTasks = {
   applications: false,
   contacts: false,
   interview: true,
-  bq: true,
-  episodes: true,
+  bq: false,
+  episodes: false,
 };
 const ALL_CORE: CoreTasks = {
   applications: true,
@@ -40,7 +41,8 @@ export const DEFAULT_SETTINGS: Settings = {
   core: DEFAULT_CORE,
   weeklyApplications: 15,
   weeklyContacts: 100,
-  episodes: 1,
+  episodes: 0,
+  questions: 3,
   bonusApplications: 5,
   bonusContacts: 30,
   basePoints: 100,
@@ -99,6 +101,28 @@ export function finalScore(answer?: Answer): number | null {
 export function latestAnswer(day: Day): Answer | undefined {
   return day.answers.at(-1);
 }
+/** The day's interview questions in order. The first lives on the day itself, so older days read unchanged. */
+export function interviewItems(day: Day): InterviewItem[] {
+  return [
+    ...(day.question
+      ? [{ question: day.question, answers: day.answers, retryOf: day.retryOf }]
+      : []),
+    ...(day.more ?? []),
+  ];
+}
+export function itemScore(item: InterviewItem): number | null {
+  return finalScore(item.answers.at(-1));
+}
+const passed = (item: InterviewItem) => (itemScore(item) ?? 0) >= 3;
+const awaitingReview = (item: InterviewItem) =>
+  item.answers.length > 0 && itemScore(item) === null;
+/** Every question of the day scored 3 or more. */
+export function interviewDone(day: Day): boolean {
+  const items = interviewItems(day);
+  return items.length
+    ? items.every(passed)
+    : (finalScore(latestAnswer(day)) ?? 0) >= 3;
+}
 export function bqDone(bq: BqTask | null): boolean {
   return (
     !bq ||
@@ -124,25 +148,6 @@ export function completedBq(
   }
   return progress;
 }
-export function nextBq(
-  state: GameState,
-  date: string,
-  bank: Question[],
-): BqTask | null {
-  const progress = completedBq(state, date);
-  for (const q of bank.filter((q) => q.category === "BQ")) {
-    const p = progress.get(q.id);
-    if (p?.practice) continue;
-    return {
-      questionId: q.id,
-      stage: p?.draft ? 2 : 1,
-      text: p?.draft?.bq?.text ?? "",
-      practiced: false,
-    };
-  }
-  return null;
-}
-
 const probes = [
   [
     'In "{title}", you used {methods}. Why did you choose them? Compare two other approaches and explain which project requirement mattered most.',
@@ -204,76 +209,172 @@ export function projectQuestion(project: Project, sequence: number): Question {
     rubric: [...probe[1]],
   };
 }
-export function selectQuestion(
+/** Earlier questions of one category, oldest first, each with the day it was asked. */
+function askedBefore(state: GameState, date: string, category: Category) {
+  return Object.values(state.days)
+    .filter((d) => d.date < date)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .flatMap((d) =>
+      interviewItems(d).map((item) => ({ ...item, date: d.date })),
+    )
+    .filter((item) => item.question.category === category);
+}
+/** `count` different questions for the day, skipping the ids in `skip`. */
+export function selectQuestions(
   state: GameState,
   date: string,
   bank: Question[],
   settings: Settings,
-): Question | null {
+  count = 1,
+  skip: string[] = [],
+): Question[] {
   const category = categoryFor(date, settings);
-  const history = Object.values(state.days)
-    .filter((d) => d.date < date && d.question?.category === category)
-    .sort((a, b) => a.date.localeCompare(b.date));
+  const history = askedBefore(state, date, category);
   if (category === "Project") {
-    if (!state.projects.length) return null;
-    return projectQuestion(
-      state.projects[history.length % state.projects.length],
-      Math.floor(history.length / state.projects.length),
+    const projects = state.projects;
+    return Array.from({ length: projects.length ? count : 0 }, (_, i) =>
+      projectQuestion(
+        projects[(history.length + i) % projects.length],
+        Math.floor((history.length + i) / projects.length),
+      ),
     );
   }
   const pool = bank.filter((q) => q.category === category);
   if (!pool.length) throw new Error(`Missing question category: ${category}`);
   // Every assignment counts, including missed days. Reset only when the entire pool was assigned.
   const used = new Set<string>();
-  for (const d of history) {
-    used.add(d.question!.id);
+  for (const item of history) {
+    used.add(item.question.id);
     if (pool.every((q) => used.has(q.id))) used.clear();
   }
-  const last = new Map(history.map((d) => [d.question!.id, d]));
-  const candidates = pool.filter((q) => !used.has(q.id));
-  candidates.sort((a, b) => {
-    const da = last.get(a.id),
-      db = last.get(b.id);
-    const priority = (d?: Day) =>
-      !d
-        ? 0
-        : (finalScore(latestAnswer(d)) ?? 0) < 3 && d.date <= addDays(date, -7)
-          ? 1
-          : 2;
-    return (
-      priority(da) - priority(db) ||
-      (da?.date ?? "").localeCompare(db?.date ?? "") ||
-      a.id.localeCompare(b.id)
-    );
-  });
-  return structuredClone(candidates[0]);
+  const last = new Map(history.map((item) => [item.question.id, item]));
+  const priority = (item?: (typeof history)[number]) =>
+    !item
+      ? 0
+      : (itemScore(item) ?? 0) < 3 && item.date <= addDays(date, -7)
+        ? 1
+        : 2;
+  const picked: Question[] = [];
+  const taken = new Set(skip);
+  while (picked.length < count) {
+    let candidates = pool.filter((q) => !used.has(q.id) && !taken.has(q.id));
+    if (!candidates.length) {
+      used.clear();
+      candidates = pool.filter((q) => !taken.has(q.id));
+      if (!candidates.length) break;
+    }
+    candidates.sort((a, b) => {
+      const da = last.get(a.id),
+        db = last.get(b.id);
+      return (
+        priority(da) - priority(db) ||
+        (da?.date ?? "").localeCompare(db?.date ?? "") ||
+        a.id.localeCompare(b.id)
+      );
+    });
+    used.add(candidates[0].id);
+    taken.add(candidates[0].id);
+    picked.push(structuredClone(candidates[0]));
+  }
+  return picked;
+}
+export function selectQuestion(
+  state: GameState,
+  date: string,
+  bank: Question[],
+  settings: Settings,
+): Question | null {
+  return selectQuestions(state, date, bank, settings)[0] ?? null;
 }
 export const RETRY_SCORE = 4,
   RETRY_DAYS = 5;
+export type RetryItem = InterviewItem & {
+  date: string;
+  /** What `retryOf` points at: the date for a day's first question, `date#n` for the others. */
+  key: string;
+};
 /**
  * Weak answers (below 4) that will come back: each once, on the next same-category day at least
- * five days later. A day that is itself a second try does not come back again.
+ * five days later. A question that is itself a second try does not come back again.
  */
-export function retryQueue(state: GameState, before = "9999-12-31"): Day[] {
-  const days = Object.values(state.days)
-    .filter((d) => d.date < before && d.question)
-    .sort((a, b) => a.date.localeCompare(b.date));
-  const retried = new Set(days.map((d) => d.retryOf));
-  return days.filter((d) => {
-    const score = finalScore(latestAnswer(d));
+export function retryQueue(
+  state: GameState,
+  before = "9999-12-31",
+): RetryItem[] {
+  const items = Object.values(state.days)
+    .filter((d) => d.date < before)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .flatMap((d) =>
+      interviewItems(d).map((item, i) => ({
+        ...item,
+        date: d.date,
+        key: i ? `${d.date}#${i}` : d.date,
+      })),
+    );
+  const retried = new Set(items.map((item) => item.retryOf));
+  return items.filter((item) => {
+    const score = itemScore(item);
     return (
       score !== null &&
       score < RETRY_SCORE &&
-      !d.retryOf &&
-      !retried.has(d.date)
+      !item.retryOf &&
+      !retried.has(item.key)
     );
   });
 }
-function retryDue(state: GameState, date: string, category: Category) {
-  return retryQueue(state, date).find(
-    (d) =>
-      d.question!.category === category && d.date <= addDays(date, -RETRY_DAYS),
+/** Finds the earlier question a `retryOf` points at. */
+export function retrySource(
+  state: GameState,
+  key: string,
+): InterviewItem | undefined {
+  const [date, slot = "0"] = key.split("#");
+  const day = state.days[date];
+  return day && interviewItems(day)[Number(slot)];
+}
+function interviewFor(
+  state: GameState,
+  date: string,
+  bank: Question[],
+  settings: Settings,
+  count: number,
+): InterviewItem[] {
+  const category = categoryFor(date, settings);
+  const retries =
+    category === "Project"
+      ? []
+      : retryQueue(state, date)
+          .filter(
+            (r) =>
+              r.question.category === category &&
+              r.date <= addDays(date, -RETRY_DAYS),
+          )
+          .slice(0, count);
+  const fresh = selectQuestions(
+    state,
+    date,
+    bank,
+    settings,
+    count - retries.length,
+    retries.map((r) => r.question.id),
   );
+  return [
+    ...retries.map((r) => ({
+      question: structuredClone(r.question),
+      answers: [],
+      retryOf: r.key,
+    })),
+    ...fresh.map((question) => ({ question, answers: [] })),
+  ];
+}
+/** Puts the questions on the day: the first in the original fields, the rest in `more`. */
+function setInterview(day: Day, items: InterviewItem[]) {
+  const [first, ...rest] = items;
+  day.question = first?.question ?? null;
+  day.answers = first?.answers ?? [];
+  if (first?.retryOf) day.retryOf = first.retryOf;
+  else delete day.retryOf;
+  if (rest.length) day.more = rest;
+  else delete day.more;
 }
 function createDay(
   state: GameState,
@@ -281,10 +382,7 @@ function createDay(
   bank: Question[],
   settings: Settings,
 ): Day {
-  const category = categoryFor(date, settings);
-  const retry =
-    category === "Project" ? undefined : retryDue(state, date, category);
-  return {
+  const day: Day = {
     date,
     closesAt: closeTime(date, settings),
     settings: structuredClone(settings),
@@ -293,12 +391,14 @@ function createDay(
     episodes: 0,
     logs: [],
     answers: [],
-    question: retry
-      ? structuredClone(retry.question)
-      : selectQuestion(state, date, bank, settings),
-    ...(retry && { retryOf: retry.date }),
-    bq: nextBq(state, date, bank),
+    question: null,
+    bq: null,
   };
+  setInterview(
+    day,
+    interviewFor(state, date, bank, settings, settings.questions ?? 1),
+  );
+  return day;
 }
 export function newGame(now: string, bank: Question[]): GameState {
   const settings = structuredClone(DEFAULT_SETTINGS),
@@ -365,6 +465,42 @@ export function advance(
     if (Temporal.Instant.compare(now, day.closesAt) < 0)
       Object.assign(day.settings, structuredClone(split));
   }
+  // BQ and the English task were retired and the interview grew to several questions. The day
+  // still open keeps what she has done: it loses the retired tasks from the streak, and gets the
+  // extra questions only if she has not answered yet.
+  if (state.settings.questions === undefined) {
+    const retire = (settings: Settings) => {
+      settings.questions = DEFAULT_SETTINGS.questions;
+      settings.episodes = 0;
+      settings.core = { ...coreOf(settings), bq: false, episodes: false };
+    };
+    retire(state.settings);
+    if (state.nextSettings) retire(state.nextSettings);
+    if (Temporal.Instant.compare(now, day.closesAt) < 0) {
+      day.settings.core = {
+        ...coreOf(day.settings),
+        bq: false,
+        episodes: false,
+      };
+      if (day.bq && !day.bq.completedAt) day.bq = null;
+      if (!day.episodes) day.settings.episodes = 0;
+      if (!interviewItems(day).some((item) => item.answers.length)) {
+        retire(day.settings);
+        const items = interviewItems(day);
+        setInterview(day, [
+          ...items,
+          ...selectQuestions(
+            state,
+            day.date,
+            bank,
+            day.settings,
+            (day.settings.questions ?? 1) - items.length,
+            items.map((item) => item.question.id),
+          ).map((question) => ({ question, answers: [] })),
+        ]);
+      }
+    }
+  }
   let count = 0;
   while (Temporal.Instant.compare(now, day.closesAt) >= 0) {
     if (++count > 3660) throw new Error("超过十年的数据需要管理员迁移");
@@ -377,8 +513,8 @@ export function advance(
     day = state.days[date];
   }
   // Update wording only before the first answer; answered questions keep their original text.
-  if (day.question && day.answers.length === 0) {
-    const current = day.question;
+  for (const { question: current, answers } of interviewItems(day)) {
+    if (answers.length) continue;
     const updated = bank.find((question) => question.id === current.id);
     if (
       updated &&
@@ -389,13 +525,22 @@ export function advance(
     )
       current.prompt = updated.prompt;
   }
-  // Adding the first project unlocks today's stable question, without changing existing questions.
+  // Adding the first project unlocks today's stable questions, without changing existing questions.
   if (
     !day.question &&
     categoryFor(day.date, day.settings) === "Project" &&
     state.projects.length
   ) {
-    day.question = selectQuestion(state, day.date, bank, day.settings);
+    setInterview(
+      day,
+      interviewFor(
+        state,
+        day.date,
+        bank,
+        day.settings,
+        day.settings.questions ?? 1,
+      ),
+    );
   }
   return day.date;
 }
@@ -413,16 +558,20 @@ export function dayTasks(
   const tasks: { key: TaskKey; done: boolean }[] = [
     { key: "applications", done: day.applications >= s.applications },
     { key: "contacts", done: day.contacts >= s.contacts },
-    { key: "interview", done: (finalScore(latestAnswer(day)) ?? 0) >= 3 },
+    { key: "interview", done: interviewDone(day) },
   ];
   if (day.bq) tasks.push({ key: "bq", done: bqDone(day.bq) });
   if (s.episodes) tasks.push({ key: "episodes", done: episodesDone(day) });
   return tasks.map((t) => ({ ...t, core: core[t.key] }));
 }
 export function requirements(day: Day) {
+  // Each interview question counts as its own step, so progress reads 2 / 3 rather than 0 / 1.
+  const questions = interviewItems(day).map(passed);
   const checks = dayTasks(day)
     .filter((t) => t.core)
-    .map((t) => t.done);
+    .flatMap((t) =>
+      t.key === "interview" && questions.length ? questions : [t.done],
+    );
   return {
     completed: checks.filter(Boolean).length,
     required: checks.length,
@@ -467,7 +616,7 @@ export function evaluate(
     const weekOf = weekKey(day.date),
       closed = Temporal.Instant.compare(now, day.closesAt) >= 0;
     const req = requirements(day),
-      answer = latestAnswer(day),
+      items = interviewItems(day),
       sessions = sessionsByDay.get(day.date) ?? [],
       studied = studyRewards(sessions),
       studyPenalty = sessions
@@ -524,12 +673,19 @@ export function evaluate(
               date: day.date,
             });
         }
+      } else if (day.excused) {
+        // A day off: no points, no penalty, no freeze, and the streak carries on past it.
+        status = "excused";
       } else if (closed) {
         // Only defer a penalty when a review can actually change this day's outcome.
         const otherMet = dayTasks(day)
           .filter((t) => t.core && t.key !== "interview")
           .every((t) => t.done);
-        if (answer && finalScore(answer) === null && otherMet) {
+        if (
+          items.some(awaitingReview) &&
+          items.every((item) => passed(item) || awaitingReview(item)) &&
+          otherMet
+        ) {
           status = "pending";
           blocked = true;
         } else if (freezes > 0) {

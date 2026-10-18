@@ -6,13 +6,13 @@ import {
   dayKey,
   DEFAULT_SETTINGS,
   evaluate,
+  interviewItems,
   newGame,
 } from "./engine";
 import { applyAction, applyGrade, type Action } from "./actions";
 import type { GameState, Question, Role, Snapshot } from "./types";
 const bank = data as Question[];
 const KEY = "offer-quest-demo-v1";
-export const bqBank = bank.filter((q) => q.category === "BQ");
 function seed(now: string): GameState {
   const today = dayKey(now, DEFAULT_SETTINGS),
     first = addDays(today, -6);
@@ -53,26 +53,19 @@ function seed(now: string): GameState {
     const day = state.days[date];
     day.applications = i % 2 ? 5 : 3;
     day.contacts = i % 2 ? 30 : 20;
-    day.episodes = day.settings.episodes;
-    day.episodeNote = "Friends · I'm on it.";
-    day.answers.push({
-      id: crypto.randomUUID(),
-      text: "Demo answer: I would start with a simple baseline, define the evaluation unit, and use a held-out dataset. I would inspect failure modes and report uncertainty before deciding whether to deploy.",
-      submittedAt: at,
-      grade: {
-        score: 4,
-        missing: ["可以更具体地描述一个失败场景"],
-        tip: "补充一个真实的指标与取舍，让回答更有说服力。",
-        model: "演示反馈",
-        status: "graded",
-      },
-    });
-    if (day.bq) {
-      day.bq.text =
-        "Situation: The team faced an ambiguous request. Task: I owned defining the measurement. Action: I interviewed stakeholders and built a baseline. Result: We agreed on a measurable next experiment.";
-      day.bq.practiced = day.bq.stage === 2;
-      day.bq.completedAt = at;
-    }
+    for (const item of interviewItems(day))
+      item.answers.push({
+        id: crypto.randomUUID(),
+        text: "Demo answer: I would start with a simple baseline, define the evaluation unit, and use a held-out dataset. I would inspect failure modes and report uncertainty before deciding whether to deploy.",
+        submittedAt: at,
+        grade: {
+          score: 4,
+          missing: ["可以更具体地描述一个失败场景"],
+          tip: "补充一个真实的指标与取舍，让回答更有说服力。",
+          model: "演示反馈",
+          status: "graded",
+        },
+      });
   }
   advance(state, now, bank);
   state.days[today].applications = 2;

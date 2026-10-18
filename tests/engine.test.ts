@@ -4,15 +4,15 @@ import {
   advance,
   categoryFor,
   closeTime,
-  completedBq,
   coreOf,
   dayKey,
   DEFAULT_SETTINGS,
   evaluate,
+  interviewItems,
   newGame,
-  nextBq,
   requirements,
   retryQueue,
+  retrySource,
   selectQuestion,
 } from "../src/lib/engine";
 import { applyAction, applyGrade, actionSchema } from "../src/lib/actions";
@@ -24,24 +24,48 @@ const noon = (date: string) => `${date}T16:00:00Z`;
 function game(date = "2026-09-14") {
   return newGame(noon(date), bank);
 }
+/** A camp with one question a day, as it was before the interview grew to three. */
+function oneQuestionGame(date = "2026-09-14") {
+  const s = game(date);
+  s.settings.questions = 1;
+  s.days[s.startedOn].settings.questions = 1;
+  delete s.days[s.startedOn].more;
+  return s;
+}
+/** Rules from before BQ and the English task were retired. */
+const OLD_RULES = {
+  episodes: 1,
+  core: {
+    applications: false,
+    contacts: false,
+    interview: true,
+    bq: true,
+    episodes: true,
+  },
+};
 function finish(day: Day, bonus = false) {
   day.applications = bonus
     ? day.settings.bonusApplications
     : day.settings.applications;
   day.contacts = bonus ? day.settings.bonusContacts : day.settings.contacts;
   day.episodes = day.settings.episodes ?? 0;
-  day.answers.push({
-    id: crypto.randomUUID(),
-    text: "A specific explanation of the evaluation design.",
-    submittedAt: noon(day.date),
-    grade: {
-      score: 3,
-      status: "graded",
-      missing: [],
-      tip: "Good.",
-      model: "test",
-    },
-  });
+  // A project day before any project has no question; the answer then sits on the day.
+  const items = interviewItems(day);
+  for (const answers of items.length
+    ? items.map((item) => item.answers)
+    : [day.answers])
+    answers.push({
+      id: crypto.randomUUID(),
+      text: "A specific explanation of the evaluation design.",
+      submittedAt: noon(day.date),
+      grade: {
+        score: 3,
+        status: "graded",
+        missing: [],
+        tip: "Good.",
+        model: "test",
+      },
+    });
   if (day.bq) {
     day.bq.text =
       "Situation, task, actions I personally took, and a concrete measurable result.";
@@ -140,7 +164,11 @@ describe("daily settlement", () => {
       if (field === "applications") d.applications = 2;
       if (field === "contacts") d.contacts = 19;
       if (field === "interview") d.answers[0].grade.score = 2;
-      if (field === "bq") delete d.bq!.completedAt;
+      // Days from before BQ was retired still need the BQ they had.
+      if (field === "bq") {
+        d.settings.core = { ...coreOf(d.settings), bq: true };
+        d.bq = { questionId: "bq-01", stage: 1, text: "", practiced: false };
+      }
       expect(evaluate(s, noon(s.startedOn)).days[0].status).toBe("open");
     },
   );
@@ -289,6 +317,12 @@ describe("daily settlement", () => {
     // Outreach is not part of the streak by default, so it cannot decide the day either.
     day.contacts = 0;
     expect(evaluate(s, noon("2026-09-17")).days[0].status).toBe("pending");
+    // Another question already below 3: the review cannot make the day pass.
+    interviewItems(day)[1].answers[0].grade.score = 2;
+    expect(evaluate(s, noon("2026-09-17")).days[0].status).toBe("frozen");
+    interviewItems(day)[1].answers[0].grade.score = 3;
+    // An older day with the English task still needs its episode.
+    Object.assign(day.settings, structuredClone(OLD_RULES));
     day.episodes = 0;
     expect(evaluate(s, noon("2026-09-17")).days[0].status).toBe("frozen");
   });
@@ -400,7 +434,7 @@ describe("time boundaries", () => {
     );
   });
 });
-describe("question assignment and BQ", () => {
+describe("question assignment", () => {
   it("has all 112 original questions, unique ids and prompts, 3-6 rubric points", () => {
     expect(bank).toHaveLength(112);
     expect(new Set(bank.map((q) => q.id)).size).toBe(112);
@@ -445,7 +479,7 @@ describe("question assignment and BQ", () => {
     ).toBe("py-01");
   });
   it("brings a weak answer back once, five days later, in the same category", () => {
-    const s = game();
+    const s = oneQuestionGame();
     s.settings.schedule = Array(7).fill("ML");
     const first = s.days[s.startedOn];
     finish(first);
@@ -483,63 +517,6 @@ describe("question assignment and BQ", () => {
     const q = s.days[s.startedOn].question;
     advance(s, noon(s.startedOn), bank);
     expect(s.days[s.startedOn].question).toEqual(q);
-  });
-  it("requires BQ draft and practice on distinct dates", () => {
-    const s = game(),
-      d = s.days[s.startedOn];
-    finish(d);
-    expect(nextBq(s, s.startedOn, bank)?.stage).toBe(1);
-    advance(s, noon(addDays(s.startedOn, 1)), bank);
-    expect(s.days[addDays(s.startedOn, 1)].bq).toMatchObject({
-      questionId: "bq-01",
-      stage: 2,
-    });
-  });
-  it("removes BQ only after all 24 stages; allows one optional weekly retell", () => {
-    const s = game();
-    runDays(s, 24);
-    const today = addDays(s.startedOn, 24),
-      now = noon(today);
-    advance(s, now, bank);
-    expect([...completedBq(s).values()].filter((p) => p.practice)).toHaveLength(
-      12,
-    );
-    expect(s.days[today].bq).toBeNull();
-    finish(s.days[today]);
-    const before = evaluate(s, now).points;
-    applyAction(
-      s,
-      {
-        id: crypto.randomUUID(),
-        type: "retell",
-        date: today,
-        questionId: "bq-02",
-        text: "Retold aloud",
-        practiced: true,
-      },
-      "player",
-      "p",
-      now,
-      bank,
-    );
-    expect(evaluate(s, now).points).toBe(before + 25);
-    expect(() =>
-      applyAction(
-        s,
-        {
-          id: crypto.randomUUID(),
-          type: "retell",
-          date: today,
-          questionId: "bq-02",
-          text: "Again",
-          practiced: true,
-        },
-        "player",
-        "p",
-        now,
-        bank,
-      ),
-    ).toThrow("本周");
   });
   it("generates grounded project probes without replacing an existing question", () => {
     const s = game("2026-09-18");
@@ -748,77 +725,219 @@ describe("validated mutations", () => {
     ).toThrow("5 次");
   });
 });
-describe("English episode task", () => {
-  it("counts once the target number of episodes was watched, extra episodes included", () => {
+describe("days from before BQ and the English task were retired", () => {
+  it("still count the episodes those days asked for", () => {
     const s = game(),
       d = s.days[s.startedOn];
+    Object.assign(d.settings, structuredClone(OLD_RULES));
     finish(d);
-    expect(d.settings.episodes).toBe(1);
     for (const [watched, met] of [
       [0, false],
       [1, true],
       [2, true],
     ] as const) {
       d.episodes = watched;
-      expect(requirements(d)).toMatchObject({ met, required: 3 });
+      expect(requirements(d)).toMatchObject({ met, required: 4 });
     }
   });
-  it("adds the task to older camps from the open day on, never retroactively", () => {
-    const s = game();
+  it("retires BQ and the English task from the next day; the open day keeps its work", () => {
+    const s = oneQuestionGame();
     runDays(s, 2);
-    // A camp saved before the task existed has no episode fields, and no core / bonus split.
-    delete s.settings.episodes;
-    delete s.settings.core;
+    // A camp saved before the change: one question, and BQ and the English task in the streak.
+    delete s.settings.questions;
+    Object.assign(s.settings, structuredClone(OLD_RULES));
     for (const d of Object.values(s.days)) {
-      delete d.settings.episodes;
-      delete d.settings.core;
-      delete d.episodes;
+      delete d.settings.questions;
+      Object.assign(d.settings, structuredClone(OLD_RULES));
+      d.bq = { questionId: "bq-01", stage: 1, text: "", practiced: false };
     }
     const [closed, open] = [s.startedOn, addDays(s.startedOn, 1)];
-    advance(s, noon(open), bank);
-    expect(s.settings.episodes).toBe(1);
-    expect(s.days[open]).toMatchObject({
-      episodes: 0,
-      settings: { episodes: 1, core: { applications: false, interview: true } },
+    Object.assign(s.days[closed], { episodes: 1 });
+    Object.assign(s.days[closed].bq!, {
+      text: "Situation, task, actions I personally took, and a measurable result.",
+      completedAt: noon(closed),
     });
-    expect(s.days[closed].settings.episodes).toBeUndefined();
+    advance(s, noon(open), bank);
+    expect(s.settings).toMatchObject({
+      questions: 3,
+      episodes: 0,
+      core: { bq: false, episodes: false, interview: true },
+    });
+    // The closed day keeps its own rules.
     expect(requirements(s.days[closed])).toMatchObject({
       met: true,
-      required: 4,
+      required: 3,
     });
-    expect(requirements(s.days[open]).met).toBe(false);
+    // She already answered today: one question still, and no BQ or episode to finish.
+    expect(interviewItems(s.days[open])).toHaveLength(1);
+    expect(s.days[open].bq).toBeNull();
+    expect(requirements(s.days[open])).toMatchObject({
+      met: true,
+      required: 1,
+    });
+    const next = addDays(open, 1);
+    advance(s, noon(next), bank);
+    expect(s.days[next].bq).toBeNull();
+    expect(interviewItems(s.days[next])).toHaveLength(3);
+    expect(requirements(s.days[next])).toMatchObject({ required: 3 });
   });
-  it("does not hold a day for review when the episode count is off", () => {
+  it("gives an unanswered open day the extra questions", () => {
+    const s = oneQuestionGame();
+    delete s.settings.questions;
+    delete s.days[s.startedOn].settings.questions;
+    advance(s, noon(s.startedOn), bank);
+    const items = interviewItems(s.days[s.startedOn]);
+    expect(items).toHaveLength(3);
+    expect(new Set(items.map((item) => item.question.id)).size).toBe(3);
+  });
+});
+describe("three questions a day", () => {
+  const answer = (date: string, slot?: number) => ({
+    type: "answer" as const,
+    id: crypto.randomUUID(),
+    date,
+    ...(slot !== undefined && { slot }),
+    text: "A full explanation with examples",
+  });
+  it("asks three different questions of the day's category and needs all three", () => {
     const s = game(),
       d = s.days[s.startedOn],
-      after = noon(addDays(s.startedOn, 1));
+      items = interviewItems(d);
+    expect(items).toHaveLength(3);
+    expect(new Set(items.map((item) => item.question.id)).size).toBe(3);
+    expect(new Set(items.map((item) => item.question.category))).toEqual(
+      new Set(["ML"]),
+    );
     finish(d);
-    d.answers[0].grade = {
-      ...d.answers[0].grade,
-      score: null,
-      status: "pending",
-    };
-    d.episodes = 0;
-    expect(evaluate(s, after).days[0].status).toBe("frozen");
-    d.episodes = 1;
-    expect(evaluate(s, after).days[0].status).toBe("pending");
+    expect(requirements(d)).toEqual({ completed: 3, required: 3, met: true });
+    items[2].answers[0].grade.score = 2;
+    expect(requirements(d)).toEqual({ completed: 2, required: 3, met: false });
   });
-  it("lets only the player record today's episodes", () => {
+  it("does not repeat a question until the category runs out", () => {
+    const s = game();
+    s.settings.schedule = Array(7).fill("Python");
+    const seen: string[] = [];
+    for (let i = 1; i <= 4; i++) {
+      const date = addDays(s.startedOn, i);
+      advance(s, noon(date), bank);
+      seen.push(
+        ...interviewItems(s.days[date]).map((item) => item.question.id),
+      );
+    }
+    // Ten Python questions: no repeat before all ten were asked, then the cycle starts again.
+    expect(new Set(seen.slice(0, 10)).size).toBe(10);
+    expect(new Set(seen).size).toBe(10);
+  });
+  it("keeps attempts, limits and reviews per question", () => {
     const s = game(),
-      a = {
-        type: "episodes" as const,
-        id: crypto.randomUUID(),
-        date: s.startedOn,
-        count: 1,
-        note: "Friends S01E01",
-      };
-    expect(() =>
-      applyAction(s, a, "referee", "r", noon(s.startedOn), bank),
-    ).toThrow("权限");
-    applyAction(s, a, "player", "p", noon(s.startedOn), bank);
-    expect(s.days[s.startedOn]).toMatchObject({
-      episodes: 1,
-      episodeNote: "Friends S01E01",
+      date = s.startedOn,
+      now = noon(date);
+    const first = answer(date),
+      second = answer(date, 1);
+    applyAction(s, first, "player", "p", now, bank);
+    // A question waiting for review does not hold up the others.
+    applyAction(s, second, "player", "p", now, bank);
+    const items = interviewItems(s.days[date]);
+    expect(items.map((item) => item.answers.length)).toEqual([1, 1, 0]);
+    applyGrade(s, date, second.id, {
+      score: 4,
+      missing: [],
+      tip: "Good",
+      model: "test",
+      status: "graded",
     });
+    expect(items[1].answers[0].grade.score).toBe(4);
+    applyAction(
+      s,
+      {
+        type: "override",
+        id: crypto.randomUUID(),
+        date,
+        answerId: first.id,
+        score: 3,
+        reason: "Clear enough",
+      },
+      "referee",
+      "r",
+      now,
+      bank,
+    );
+    expect(items[0].answers[0].override?.score).toBe(3);
+    expect(() =>
+      applyAction(s, answer(date, 3), "player", "p", now, bank),
+    ).toThrow("找不到这道题");
+  });
+  it("brings a weak later question back on its own", () => {
+    const s = game();
+    s.settings.schedule = Array(7).fill("ML");
+    const first = s.days[s.startedOn];
+    finish(first);
+    const items = interviewItems(first);
+    items[0].answers[0].grade.score = 4;
+    items[1].answers[0].grade.score = 2;
+    items[2].answers[0].grade.score = 5;
+    expect(retryQueue(s).map((r) => r.key)).toEqual([`${s.startedOn}#1`]);
+    const fifth = addDays(s.startedOn, 5);
+    for (let i = 1; i <= 5; i++)
+      advance(s, noon(addDays(s.startedOn, i)), bank);
+    const retry = interviewItems(s.days[fifth]).find((item) => item.retryOf);
+    expect(retry).toMatchObject({
+      retryOf: `${s.startedOn}#1`,
+      question: { id: items[1].question.id },
+    });
+    expect(retrySource(s, retry!.retryOf!)).toBe(items[1]);
+  });
+});
+describe("days off", () => {
+  const excuse = (date: string, reason = "生病了") => ({
+    type: "excuse" as const,
+    id: crypto.randomUUID(),
+    date,
+    reason,
+  });
+  it("neither count nor break the streak, cost nothing, and only the referee gives them", () => {
+    const s = game();
+    runDays(s, 2);
+    const [sick1, sick2, back] = [2, 3, 4].map((i) => addDays(s.startedOn, i));
+    for (const d of [sick1, sick2, back]) advance(s, noon(d), bank);
+    finish(s.days[back]);
+    const now = noon(addDays(back, 1));
+    const before = evaluate(s, now);
+    expect(before.days.map((d) => d.status)).toEqual([
+      "met",
+      "met",
+      "frozen",
+      "missed",
+      "met",
+    ]);
+    expect(before).toMatchObject({ streak: 1, pool: 10 });
+    expect(() =>
+      applyAction(s, excuse(sick1), "player", "p", now, bank),
+    ).toThrow("权限");
+    for (const d of [sick1, sick2])
+      applyAction(s, excuse(d), "referee", "r", now, bank);
+    const after = evaluate(s, now);
+    // Acting opened the next day, which is still in progress.
+    expect(after.days.map((d) => d.status)).toEqual([
+      "met",
+      "met",
+      "excused",
+      "excused",
+      "met",
+      "open",
+    ]);
+    expect(after).toMatchObject({
+      streak: 3,
+      points: 300,
+      pool: 0,
+      freezes: 1,
+    });
+    // A completed day stays a success; an empty reason takes the day off back.
+    applyAction(s, excuse(back), "referee", "r", now, bank);
+    expect(evaluate(s, now).days[4].status).toBe("met");
+    // Back to counting: the freeze the first sick day no longer needs now covers it.
+    applyAction(s, excuse(sick2, ""), "referee", "r", now, bank);
+    expect(s.days[sick2].excused).toBeUndefined();
+    expect(evaluate(s, now).days[3].status).toBe("frozen");
   });
 });

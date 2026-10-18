@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { actionSchema, applyAction } from "../src/lib/actions";
-import { evaluate, newGame, weekKey } from "../src/lib/engine";
+import { evaluate, interviewItems, newGame, weekKey } from "../src/lib/engine";
 import {
   DEFAULT_STUDY,
   studyRewards,
@@ -80,23 +80,19 @@ describe("shared daily study rewards", () => {
     expect(evaluate(state, now, sessions).points).toBe(0);
     day.applications = day.settings.applications;
     day.contacts = day.settings.contacts;
-    day.episodes = day.settings.episodes;
-    day.answers.push({
-      id: crypto.randomUUID(),
-      text: "answer",
-      submittedAt: now,
-      grade: {
-        score: 4,
-        status: "graded",
-        missing: [],
-        tip: "",
-        model: "test",
-      },
-    });
-    if (day.bq) {
-      day.bq.text = "STAR draft with concrete situation, action and result.";
-      day.bq.completedAt = now;
-    }
+    for (const item of interviewItems(day))
+      item.answers.push({
+        id: crypto.randomUUID(),
+        text: "answer",
+        submittedAt: now,
+        grade: {
+          score: 4,
+          status: "graded",
+          missing: [],
+          tip: "",
+          model: "test",
+        },
+      });
     expect(
       evaluate(state, now, sessions).points - evaluate(state, now).points,
     ).toBe(125);

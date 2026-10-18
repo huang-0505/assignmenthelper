@@ -39,6 +39,8 @@ export type Settings = {
   weeklyContacts?: number;
   /** English listening: watch exactly this many TV episodes a day. 0 or missing = not required. */
   episodes?: number;
+  /** Interview questions a day. Missing on days from before there were several: one. */
+  questions?: number;
   bonusApplications: number;
   bonusContacts: number;
   basePoints: number;
@@ -63,6 +65,13 @@ export type Answer = {
   submittedAt: string;
   grade: Grade;
   override?: { score: number; reason: string; at: string; by: string };
+};
+/** One interview question of the day and her attempts at it. */
+export type InterviewItem = {
+  question: Question;
+  answers: Answer[];
+  /** Set when this is a weak answer from that earlier question, back for a second try. */
+  retryOf?: string;
 };
 export type BqTask = {
   questionId: string;
@@ -95,6 +104,10 @@ export type Day = {
   /** Set when today's question is a weak answer from that earlier day, back for a second try. */
   retryOf?: string;
   answers: Answer[];
+  /** The day's other interview questions; the first one is `question` / `answers` above. */
+  more?: InterviewItem[];
+  /** The referee gave her the day off: it neither counts nor breaks the streak. */
+  excused?: { reason: string; at: string; by: string };
   bq: BqTask | null;
   retell?: { questionId: string; practiced: boolean; text: string };
 };
@@ -138,7 +151,14 @@ export type GameState = {
   };
 };
 export type DayStatus =
-  "open" | "met" | "gold" | "missed" | "frozen" | "pending" | "waiting";
+  | "open"
+  | "met"
+  | "gold"
+  | "missed"
+  | "frozen"
+  | "excused"
+  | "pending"
+  | "waiting";
 export type EvaluatedDay = {
   date: string;
   status: DayStatus;
