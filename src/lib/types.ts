@@ -48,6 +48,8 @@ export type Settings = {
   penaltyAmount: number;
   penaltyThreshold: number;
   schedule: (Category | "Alternate")[];
+  /** Each weekday's question categories, Sunday first, one per question. Missing: all from `schedule`. */
+  mix?: (Category | "Alternate")[][];
   rewards: { streak: number; text: string }[];
   /** Optional Study Mode; missing on snapshots saved before it existed. */
   study?: StudyRules;

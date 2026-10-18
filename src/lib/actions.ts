@@ -43,6 +43,7 @@ export const studyRulesSchema = z
   })
   .refine((s) => s.minGap <= s.maxGap, "检查间隔的最短值不能大于最长值");
 const coachLine = z.string().trim().min(1).max(60);
+const slot = z.enum(["ML", "AI/LLM", "SQL", "Python", "Project", "Alternate"]);
 const settingsSchema = z
   .object({
     timezone: z.literal("America/New_York"),
@@ -66,9 +67,8 @@ const settingsSchema = z
     bonusPoints: z.number().int().min(0).max(1000),
     penaltyAmount: z.number().int().min(1).max(1000),
     penaltyThreshold: z.number().int().min(1).max(10000),
-    schedule: z
-      .array(z.enum(["ML", "AI/LLM", "SQL", "Python", "Project", "Alternate"]))
-      .length(7),
+    schedule: z.array(slot).length(7),
+    mix: z.array(z.array(slot).min(1).max(5)).length(7),
     rewards: z
       .array(
         z.object({

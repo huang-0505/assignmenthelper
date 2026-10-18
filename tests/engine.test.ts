@@ -519,8 +519,13 @@ describe("question assignment", () => {
     expect(s.days[s.startedOn].question).toEqual(q);
   });
   it("generates grounded project probes without replacing an existing question", () => {
-    const s = game("2026-09-18");
-    expect(s.days[s.startedOn].question).toBeNull();
+    // A one-question day from the weekly schedule, before days mixed categories.
+    const s = game("2026-09-18"),
+      first = s.days[s.startedOn];
+    first.settings.questions = 1;
+    delete first.settings.mix;
+    Object.assign(first, { question: null, answers: [] });
+    delete first.more;
     s.projects = [
       {
         id: crypto.randomUUID(),
@@ -799,15 +804,16 @@ describe("three questions a day", () => {
     ...(slot !== undefined && { slot }),
     text: "A full explanation with examples",
   });
-  it("asks three different questions of the day's category and needs all three", () => {
+  it("asks one question from each of the day's categories and needs all three", () => {
     const s = game(),
       d = s.days[s.startedOn],
       items = interviewItems(d);
-    expect(items).toHaveLength(3);
-    expect(new Set(items.map((item) => item.question.id)).size).toBe(3);
-    expect(new Set(items.map((item) => item.question.category))).toEqual(
-      new Set(["ML"]),
-    );
+    // 2026-09-14 is a Monday.
+    expect(items.map((item) => item.question.category)).toEqual([
+      "ML",
+      "AI/LLM",
+      "SQL",
+    ]);
     finish(d);
     expect(requirements(d)).toEqual({ completed: 3, required: 3, met: true });
     items[2].answers[0].grade.score = 2;
@@ -815,7 +821,7 @@ describe("three questions a day", () => {
   });
   it("does not repeat a question until the category runs out", () => {
     const s = game();
-    s.settings.schedule = Array(7).fill("Python");
+    s.settings.mix = Array(7).fill(["Python", "Python", "Python"]);
     const seen: string[] = [];
     for (let i = 1; i <= 4; i++) {
       const date = addDays(s.startedOn, i);
@@ -867,9 +873,8 @@ describe("three questions a day", () => {
       applyAction(s, answer(date, 3), "player", "p", now, bank),
     ).toThrow("找不到这道题");
   });
-  it("brings a weak later question back on its own", () => {
+  it("brings a weak later question back on the next day with its category", () => {
     const s = game();
-    s.settings.schedule = Array(7).fill("ML");
     const first = s.days[s.startedOn];
     finish(first);
     const items = interviewItems(first);
@@ -877,15 +882,88 @@ describe("three questions a day", () => {
     items[1].answers[0].grade.score = 2;
     items[2].answers[0].grade.score = 5;
     expect(retryQueue(s).map((r) => r.key)).toEqual([`${s.startedOn}#1`]);
-    const fifth = addDays(s.startedOn, 5);
-    for (let i = 1; i <= 5; i++)
+    // The AI/LLM question is due from Saturday, which asks none, so it comes back on Sunday.
+    const [saturday, sunday] = [5, 6].map((i) => addDays(s.startedOn, i));
+    for (let i = 1; i <= 6; i++)
       advance(s, noon(addDays(s.startedOn, i)), bank);
-    const retry = interviewItems(s.days[fifth]).find((item) => item.retryOf);
+    expect(interviewItems(s.days[saturday]).some((i) => i.retryOf)).toBe(false);
+    const retry = interviewItems(s.days[sunday]).find((item) => item.retryOf);
     expect(retry).toMatchObject({
       retryOf: `${s.startedOn}#1`,
       question: { id: items[1].question.id },
     });
     expect(retrySource(s, retry!.retryOf!)).toBe(items[1]);
+  });
+});
+describe("mixed categories", () => {
+  const project = {
+    id: crypto.randomUUID(),
+    title: "Retention",
+    summary: "Predict retention using events",
+    role: "Model evaluation",
+    methods: "LightGBM",
+    metrics: "PR-AUC 0.4",
+  };
+  it("follows the weekly mix: three categories a day, a balanced week", () => {
+    const s = game();
+    s.projects = [project];
+    const counts: Record<string, number> = {};
+    for (let i = 1; i <= 7; i++) {
+      const date = addDays(s.startedOn, i);
+      advance(s, noon(date), bank);
+      const categories = interviewItems(s.days[date]).map(
+        (item) => item.question.category,
+      );
+      expect(new Set(categories).size).toBe(3);
+      for (const c of categories) counts[c] = (counts[c] ?? 0) + 1;
+    }
+    expect(counts).toEqual({
+      ML: 7,
+      "AI/LLM": 6,
+      SQL: 4,
+      Python: 2,
+      Project: 2,
+    });
+  });
+  it("asks ML in the project's place until there is a project", () => {
+    const s = game("2026-09-17"); // Thursday: ML, AI/LLM, project
+    expect(
+      interviewItems(s.days[s.startedOn]).map((i) => i.question.category),
+    ).toEqual(["ML", "AI/LLM", "ML"]);
+    s.projects = [project];
+    const saturday = addDays(s.startedOn, 2);
+    advance(s, noon(saturday), bank);
+    const items = interviewItems(s.days[saturday]);
+    expect(items.map((i) => i.question.category)).toEqual([
+      "ML",
+      "Python",
+      "Project",
+    ]);
+    expect(items[2].question.prompt).toContain("Retention");
+  });
+  it("switches older camps from the next day; an unanswered open day is re-picked", () => {
+    const answered = game(),
+      fresh = game();
+    for (const s of [answered, fresh]) {
+      delete s.settings.mix;
+      delete s.days[s.startedOn].settings.mix;
+    }
+    finish(answered.days[answered.startedOn]);
+    const before = interviewItems(answered.days[answered.startedOn]).map(
+      (i) => i.question.id,
+    );
+    advance(answered, noon(answered.startedOn), bank);
+    expect(answered.settings.mix).toEqual(DEFAULT_SETTINGS.mix);
+    expect(
+      interviewItems(answered.days[answered.startedOn]).map(
+        (i) => i.question.id,
+      ),
+    ).toEqual(before);
+    expect(answered.days[answered.startedOn].settings.mix).toBeUndefined();
+    advance(fresh, noon(fresh.startedOn), bank);
+    expect(fresh.days[fresh.startedOn].settings.mix).toEqual(
+      DEFAULT_SETTINGS.mix,
+    );
   });
 });
 describe("days off", () => {

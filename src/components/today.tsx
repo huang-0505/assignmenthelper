@@ -30,7 +30,7 @@ import {
   Zap,
 } from "lucide-react";
 import {
-  categoryFor,
+  categoriesFor,
   coreOf,
   dayTasks,
   finalScore,
@@ -47,6 +47,7 @@ import { useGame } from "./provider";
 import { DoorWindow } from "./study-parts";
 import { Modal, Progress, SectionHeading, Status } from "./ui";
 const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+const SHORT: Record<string, string> = { "AI/LLM": "AI", Project: "项目" };
 
 export function Today() {
   const { snapshot } = useGame(),
@@ -227,13 +228,19 @@ export function Today() {
                 dateKey.setUTCDate(dateKey.getUTCDate() + i);
                 const d = dateKey.toISOString().slice(0, 10);
                 const result = summary.days.find((day) => day.date === d);
+                // Days already started show what they asked; later days follow the coming rules.
+                const categories = state.days[d]
+                  ? interviewItems(state.days[d]).map(
+                      (item) => item.question.category,
+                    )
+                  : categoriesFor(d, state.nextSettings ?? state.settings);
                 return (
                   <div className={d === today ? "current" : ""} key={w}>
                     <span>{weekdays[w]}</span>
                     <strong>
-                      {categoryFor(d, day.settings) === "Project"
-                        ? "项目深挖"
-                        : categoryFor(d, day.settings)}
+                      {categories.length
+                        ? categories.map((c) => SHORT[c] ?? c).join(" · ")
+                        : "项目深挖"}
                     </strong>
                     {d === today ? (
                       <span className="today-dot">今天</span>

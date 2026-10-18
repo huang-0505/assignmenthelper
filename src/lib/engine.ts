@@ -50,6 +50,18 @@ export const DEFAULT_SETTINGS: Settings = {
   penaltyAmount: 10,
   penaltyThreshold: 50,
   schedule: ["AI/LLM", "ML", "AI/LLM", "SQL", "ML", "Project", "Alternate"],
+  // One ML, one AI/LLM and one hands-on question a day; Saturday swaps AI/LLM for a second hands-on
+  // one. A week asks 7 ML, 6 AI/LLM, 4 SQL, 2 Python and 2 project questions, so every bank cycles
+  // in about five weeks.
+  mix: [
+    ["ML", "AI/LLM", "SQL"],
+    ["ML", "AI/LLM", "SQL"],
+    ["ML", "AI/LLM", "Python"],
+    ["ML", "AI/LLM", "SQL"],
+    ["ML", "AI/LLM", "Project"],
+    ["ML", "AI/LLM", "SQL"],
+    ["ML", "Python", "Project"],
+  ],
   rewards: [
     { streak: 7, text: "一顿想吃的饭，裁判请客！" },
     { streak: 14, text: "一起去一日游！" },
@@ -85,8 +97,22 @@ export function weekKey(date: string): string {
   return d.subtract({ days: d.dayOfWeek - 1 }).toString();
 }
 export function categoryFor(date: string, settings: Settings): Category {
-  const weekday = Temporal.PlainDate.from(date).dayOfWeek % 7;
-  const category = settings.schedule[weekday];
+  return resolve(
+    settings.schedule[Temporal.PlainDate.from(date).dayOfWeek % 7],
+    date,
+  );
+}
+/** The categories of the day's questions in order: the weekday's mix, or all from `schedule`. */
+export function categoriesFor(date: string, settings: Settings): Category[] {
+  const count = settings.questions ?? 1,
+    row = settings.mix?.[Temporal.PlainDate.from(date).dayOfWeek % 7];
+  return Array.from({ length: count }, (_, i) =>
+    row?.length
+      ? resolve(row[i % row.length], date)
+      : categoryFor(date, settings),
+  );
+}
+function resolve(category: Category | "Alternate", date: string): Category {
   if (category !== "Alternate") return category;
   const weeks = Math.floor(
     Temporal.PlainDate.from("2026-01-05").until(
@@ -219,16 +245,15 @@ function askedBefore(state: GameState, date: string, category: Category) {
     )
     .filter((item) => item.question.category === category);
 }
-/** `count` different questions for the day, skipping the ids in `skip`. */
+/** `count` different questions of one category for the day, skipping the ids in `skip`. */
 export function selectQuestions(
   state: GameState,
   date: string,
   bank: Question[],
-  settings: Settings,
+  category: Category,
   count = 1,
   skip: string[] = [],
 ): Question[] {
-  const category = categoryFor(date, settings);
   const history = askedBefore(state, date, category);
   if (category === "Project") {
     const projects = state.projects;
@@ -284,7 +309,9 @@ export function selectQuestion(
   bank: Question[],
   settings: Settings,
 ): Question | null {
-  return selectQuestions(state, date, bank, settings)[0] ?? null;
+  return (
+    selectQuestions(state, date, bank, categoryFor(date, settings))[0] ?? null
+  );
 }
 export const RETRY_SCORE = 4,
   RETRY_DAYS = 5;
@@ -336,35 +363,41 @@ function interviewFor(
   date: string,
   bank: Question[],
   settings: Settings,
-  count: number,
 ): InterviewItem[] {
-  const category = categoryFor(date, settings);
-  const retries =
-    category === "Project"
-      ? []
-      : retryQueue(state, date)
-          .filter(
-            (r) =>
-              r.question.category === category &&
-              r.date <= addDays(date, -RETRY_DAYS),
-          )
-          .slice(0, count);
-  const fresh = selectQuestions(
-    state,
-    date,
-    bank,
-    settings,
-    count - retries.length,
-    retries.map((r) => r.question.id),
+  // A mixed day without any project yet asks another ML question in the project's place.
+  const slots = categoriesFor(date, settings).map((category) =>
+    category === "Project" && settings.mix && !state.projects.length
+      ? "ML"
+      : category,
   );
-  return [
-    ...retries.map((r) => ({
-      question: structuredClone(r.question),
-      answers: [],
-      retryOf: r.key,
-    })),
-    ...fresh.map((question) => ({ question, answers: [] })),
-  ];
+  const due = retryQueue(state, date).filter(
+    (r) => r.date <= addDays(date, -RETRY_DAYS),
+  );
+  const byCategory = new Map<Category, InterviewItem[]>();
+  for (const category of new Set(slots)) {
+    const count = slots.filter((c) => c === category).length;
+    const retries =
+      category === "Project"
+        ? []
+        : due.filter((r) => r.question.category === category).slice(0, count);
+    const fresh = selectQuestions(
+      state,
+      date,
+      bank,
+      category,
+      count - retries.length,
+      retries.map((r) => r.question.id),
+    );
+    byCategory.set(category, [
+      ...retries.map((r) => ({
+        question: structuredClone(r.question),
+        answers: [],
+        retryOf: r.key,
+      })),
+      ...fresh.map((question) => ({ question, answers: [] })),
+    ]);
+  }
+  return slots.flatMap((category) => byCategory.get(category)!.shift() ?? []);
 }
 /** Puts the questions on the day: the first in the original fields, the rest in `more`. */
 function setInterview(day: Day, items: InterviewItem[]) {
@@ -394,10 +427,7 @@ function createDay(
     question: null,
     bq: null,
   };
-  setInterview(
-    day,
-    interviewFor(state, date, bank, settings, settings.questions ?? 1),
-  );
+  setInterview(day, interviewFor(state, date, bank, settings));
   return day;
 }
 export function newGame(now: string, bank: Question[]): GameState {
@@ -486,19 +516,21 @@ export function advance(
       if (!day.episodes) day.settings.episodes = 0;
       if (!interviewItems(day).some((item) => item.answers.length)) {
         retire(day.settings);
-        const items = interviewItems(day);
-        setInterview(day, [
-          ...items,
-          ...selectQuestions(
-            state,
-            day.date,
-            bank,
-            day.settings,
-            (day.settings.questions ?? 1) - items.length,
-            items.map((item) => item.question.id),
-          ).map((question) => ({ question, answers: [] })),
-        ]);
+        setInterview(day, interviewFor(state, day.date, bank, day.settings));
       }
+    }
+  }
+  // Then each day mixed categories instead of asking one. Same again: from the next day, and the
+  // open day only if she has not answered yet.
+  if (state.settings.mix === undefined) {
+    for (const settings of [state.settings, state.nextSettings])
+      if (settings) settings.mix = structuredClone(DEFAULT_SETTINGS.mix);
+    if (
+      Temporal.Instant.compare(now, day.closesAt) < 0 &&
+      !interviewItems(day).some((item) => item.answers.length)
+    ) {
+      day.settings.mix = structuredClone(DEFAULT_SETTINGS.mix);
+      setInterview(day, interviewFor(state, day.date, bank, day.settings));
     }
   }
   let count = 0;
@@ -528,19 +560,10 @@ export function advance(
   // Adding the first project unlocks today's stable questions, without changing existing questions.
   if (
     !day.question &&
-    categoryFor(day.date, day.settings) === "Project" &&
-    state.projects.length
+    state.projects.length &&
+    categoriesFor(day.date, day.settings).includes("Project")
   ) {
-    setInterview(
-      day,
-      interviewFor(
-        state,
-        day.date,
-        bank,
-        day.settings,
-        day.settings.questions ?? 1,
-      ),
-    );
+    setInterview(day, interviewFor(state, day.date, bank, day.settings));
   }
   return day.date;
 }

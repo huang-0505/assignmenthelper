@@ -29,6 +29,7 @@ import {
 import {
   addDays,
   bqDone,
+  DEFAULT_SETTINGS,
   coreOf,
   episodesDone,
   finalScore,
@@ -1005,7 +1006,9 @@ export function Referee() {
                 <strong>
                   {d.date}
                   <small>
-                    {day.question?.category || "项目深挖"}
+                    {[
+                      ...new Set(items.map((item) => item.question.category)),
+                    ].join(" · ") || "项目深挖"}
                     {items.some((item) => item.retryOf) && " · 回炉"}
                   </small>
                 </strong>
@@ -1737,8 +1740,8 @@ function SettingsForm({
             ...settings,
             rewards,
             closeHour: Number(form.get("closeHour")),
-            schedule: settings.schedule.map((_, i) =>
-              String(form.get(`schedule-${i}`)),
+            mix: Array.from({ length: 7 }, (_, w) =>
+              [0, 1, 2].map((i) => String(form.get(`mix-${w}-${i}`))),
             ),
           } as Required<Settings>;
           for (const field of numericFields)
@@ -1817,7 +1820,7 @@ function SettingsForm({
         <section className="white-panel">
           <SectionHeading
             title="训练日与出题安排"
-            note="时区固定为 America/New_York，自动处理夏令时。"
+            note="每天 3 道题各选一个类别，第二天生效。题数多于 3 道时按这一行循环。时区固定为 America/New_York，自动处理夏令时。"
           />
           <label className="close-hour-label">
             一天的结算时间（纽约本地时间）
@@ -1829,32 +1832,41 @@ function SettingsForm({
               ))}
             </select>
           </label>
-          <div className="schedule-settings">
+          <div className="schedule-settings mix-settings">
             {[1, 2, 3, 4, 5, 6, 0].map((w) => (
-              <label key={w}>
-                {["周日", "周一", "周二", "周三", "周四", "周五", "周六"][w]}
-                <select
-                  name={`schedule-${w}`}
-                  defaultValue={settings.schedule[w]}
-                >
-                  {[
-                    "ML",
-                    "AI/LLM",
-                    "SQL",
-                    "Python",
-                    "Project",
-                    "Alternate",
-                  ].map((c) => (
-                    <option key={c} value={c}>
-                      {c === "Project"
-                        ? "项目深挖"
-                        : c === "Alternate"
-                          ? "SQL / Python 隔周轮换"
-                          : c}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <fieldset key={w}>
+                <legend>
+                  {["周日", "周一", "周二", "周三", "周四", "周五", "周六"][w]}
+                </legend>
+                {[0, 1, 2].map((i) => (
+                  <select
+                    key={i}
+                    name={`mix-${w}-${i}`}
+                    aria-label={`${["周日", "周一", "周二", "周三", "周四", "周五", "周六"][w]}第 ${i + 1} 题`}
+                    defaultValue={
+                      (settings.mix ?? DEFAULT_SETTINGS.mix!)[w][i] ??
+                      settings.schedule[w]
+                    }
+                  >
+                    {[
+                      "ML",
+                      "AI/LLM",
+                      "SQL",
+                      "Python",
+                      "Project",
+                      "Alternate",
+                    ].map((c) => (
+                      <option key={c} value={c}>
+                        {c === "Project"
+                          ? "项目"
+                          : c === "Alternate"
+                            ? "SQL / Python 隔周"
+                            : c}
+                      </option>
+                    ))}
+                  </select>
+                ))}
+              </fieldset>
             ))}
           </div>
           <p className="form-hint">
