@@ -1,5 +1,6 @@
 import { Temporal } from "@js-temporal/polyfill";
 import { DEFAULT_STUDY, studyRewards, type StudyOutcome } from "./study";
+import { WORDS } from "./words";
 import type {
   Answer,
   BqTask,
@@ -13,6 +14,8 @@ import type {
   Settings,
   Summary,
   TaskKey,
+  VocabDay,
+  VocabMark,
 } from "./types";
 
 /** Outreach is a numbers game that runs on a weekly rhythm; the streak asks for the interview questions. */
@@ -399,6 +402,62 @@ function interviewFor(
   }
   return slots.flatMap((category) => byCategory.get(category)!.shift() ?? []);
 }
+export const VOCAB_PER_DAY = 20;
+/** Each word's latest mark from the days before `before`, in the order she first met them. */
+export function vocabMarks(
+  state: GameState,
+  before = "9999-12-31",
+): Map<string, VocabMark> {
+  const marks = new Map<string, VocabMark>();
+  for (const day of Object.values(state.days).sort((a, b) =>
+    a.date.localeCompare(b.date),
+  ))
+    if (day.date < before)
+      for (const [word, mark] of Object.entries(day.vocab?.marks ?? {}))
+        marks.set(word, mark);
+  return marks;
+}
+/** `keep`, then the most frequent words she has not marked yet, up to `count`. */
+function nextWords(
+  marks: Map<string, VocabMark>,
+  review: string[],
+  keep: string[],
+  count: number,
+): string[] {
+  const taken = new Set([...review, ...keep]),
+    words = [...keep];
+  for (const [word] of WORDS) {
+    if (words.length >= count) break;
+    if (!marks.has(word) && !taken.has(word)) words.push(word);
+  }
+  return words;
+}
+/** Words she is still learning come back each day until she knows them; unmarked words come again. */
+function vocabFor(state: GameState, date: string): VocabDay {
+  const marks = vocabMarks(state, date),
+    perDay = state.vocab?.perDay ?? VOCAB_PER_DAY;
+  const review = [...marks]
+    .filter(([, mark]) => mark === "learn")
+    .map(([word]) => word)
+    .slice(0, perDay);
+  return { review, fresh: nextWords(marks, review, [], perDay), marks: {} };
+}
+/** A new daily amount reshapes today's new words, keeping the ones she has already marked. */
+export function resizeVocab(state: GameState, day: Day, perDay: number) {
+  const vocab = day.vocab!;
+  vocab.fresh = nextWords(
+    vocabMarks(state, day.date),
+    vocab.review,
+    vocab.fresh.filter((word) => vocab.marks[word]),
+    perDay,
+  );
+}
+export function vocabDone(day: Day): boolean {
+  const vocab = day.vocab;
+  if (!vocab) return false;
+  const words = [...vocab.review, ...vocab.fresh];
+  return words.length > 0 && words.every((word) => vocab.marks[word]);
+}
 /** Puts the questions on the day: the first in the original fields, the rest in `more`. */
 function setInterview(day: Day, items: InterviewItem[]) {
   const [first, ...rest] = items;
@@ -428,6 +487,7 @@ function createDay(
     bq: null,
   };
   setInterview(day, interviewFor(state, date, bank, settings));
+  if (state.vocab) day.vocab = vocabFor(state, date);
   return day;
 }
 export function newGame(now: string, bank: Question[]): GameState {
@@ -439,6 +499,7 @@ export function newGame(now: string, bank: Question[]): GameState {
     settings,
     days: {},
     projects: [],
+    vocab: { perDay: VOCAB_PER_DAY },
     redemptions: [],
     audit: [],
   };
@@ -532,6 +593,12 @@ export function advance(
       day.settings.mix = structuredClone(DEFAULT_SETTINGS.mix);
       setInterview(day, interviewFor(state, day.date, bank, day.settings));
     }
+  }
+  // The daily words arrive as a bonus task, on the open day too: they cannot cost her anything.
+  if (state.vocab === undefined) {
+    state.vocab = { perDay: VOCAB_PER_DAY };
+    if (Temporal.Instant.compare(now, day.closesAt) < 0)
+      day.vocab = vocabFor(state, day.date);
   }
   let count = 0;
   while (Temporal.Instant.compare(now, day.closesAt) >= 0) {
@@ -671,7 +738,8 @@ export function evaluate(
       if (req.met) {
         const bonus =
           Number(day.applications >= day.settings.bonusApplications) +
-          Number(day.contacts >= day.settings.bonusContacts);
+          Number(day.contacts >= day.settings.bonusContacts) +
+          Number(vocabDone(day));
         const retell =
           day.retell?.practiced &&
           !retellWeeks.has(weekOf) &&

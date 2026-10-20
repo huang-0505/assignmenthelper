@@ -5,6 +5,7 @@ import {
   bqDone,
   evaluate,
   interviewItems,
+  resizeVocab,
   weekKey,
 } from "./engine";
 import type { StudyOutcome } from "./study";
@@ -159,6 +160,22 @@ export const actionSchema = z.discriminatedUnion("type", [
     answerId: id,
     score: z.number().int().min(1).max(5),
     reason: z.string().trim().min(3).max(1000),
+  }),
+  z.object({
+    ...common,
+    type: z.literal("vocab"),
+    /** Words from today's list, each marked as known or still being learned. */
+    marks: z
+      .record(z.string().max(40), z.enum(["know", "learn"]))
+      .refine(
+        (marks) => Object.keys(marks).length <= 200,
+        "一次最多保存 200 个词",
+      ),
+  }),
+  z.object({
+    id,
+    type: z.literal("vocabPace"),
+    perDay: z.number().int().min(5).max(100),
   }),
   z.object({
     ...common,
@@ -317,6 +334,19 @@ export function applyAction(
       };
       break;
     }
+    case "vocab": {
+      const vocab = day.vocab;
+      if (!vocab) throw new Error("这一天没有单词任务");
+      const today = new Set([...vocab.review, ...vocab.fresh]);
+      if (Object.keys(action.marks).some((word) => !today.has(word)))
+        throw new Error("有的单词不在今天的列表里，请刷新后再保存");
+      Object.assign(vocab.marks, action.marks);
+      break;
+    }
+    case "vocabPace":
+      state.vocab = { perDay: action.perDay };
+      if (day.vocab) resizeVocab(state, day, action.perDay);
+      break;
     case "excuse":
       if (action.date > today) throw new Error("只能给今天或之前的日子请假");
       if (action.reason)
@@ -358,23 +388,27 @@ export function applyAction(
           ? `发布了 ${action.plan.weekOf} 这一周的训练计划`
           : action.type === "override"
             ? `${action.score}/5: ${action.reason}`
-            : action.type === "excuse"
-              ? action.reason
-                ? `请假，这天不算：${action.reason}`
-                : "取消了请假"
-              : action.type === "settings"
-                ? "设置于下一训练日生效"
-                : action.type === "redeem"
-                  ? "裁判确认已请客，清空已累计罚金"
-                  : action.type === "playerName"
-                    ? `玩家名字改为「${action.name}」`
-                    : action.type === "coachLines"
-                      ? "修改了学习模式教练台词"
-                      : action.type === "coachNote"
-                        ? action.text
-                          ? `给她留言：${action.text}`
-                          : "清除了留言"
-                        : "已保存",
+            : action.type === "vocab"
+              ? `背单词：认识 ${Object.values(action.marks).filter((m) => m === "know").length} 个，不熟 ${Object.values(action.marks).filter((m) => m === "learn").length} 个`
+              : action.type === "vocabPace"
+                ? `每天新词改为 ${action.perDay} 个`
+                : action.type === "excuse"
+                  ? action.reason
+                    ? `请假，这天不算：${action.reason}`
+                    : "取消了请假"
+                  : action.type === "settings"
+                    ? "设置于下一训练日生效"
+                    : action.type === "redeem"
+                      ? "裁判确认已请客，清空已累计罚金"
+                      : action.type === "playerName"
+                        ? `玩家名字改为「${action.name}」`
+                        : action.type === "coachLines"
+                          ? "修改了学习模式教练台词"
+                          : action.type === "coachNote"
+                            ? action.text
+                              ? `给她留言：${action.text}`
+                              : "清除了留言"
+                            : "已保存",
   });
 }
 

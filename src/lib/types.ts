@@ -75,6 +75,14 @@ export type InterviewItem = {
   /** Set when this is a weak answer from that earlier question, back for a second try. */
   retryOf?: string;
 };
+export type VocabMark = "know" | "learn";
+/** One day's words: earlier words she was still learning, back for review, then new ones. */
+export type VocabDay = {
+  review: string[];
+  fresh: string[];
+  /** Her answer for each word she went through: knows it already, or is still learning it. */
+  marks: Record<string, VocabMark>;
+};
 export type BqTask = {
   questionId: string;
   stage: 1 | 2;
@@ -110,6 +118,8 @@ export type Day = {
   more?: InterviewItem[];
   /** The referee gave her the day off: it neither counts nor breaks the streak. */
   excused?: { reason: string; at: string; by: string };
+  /** The daily words, a bonus task. Missing on days from before it existed. */
+  vocab?: VocabDay;
   bq: BqTask | null;
   retell?: { questionId: string; practiced: boolean; text: string };
 };
@@ -140,6 +150,8 @@ export type GameState = {
   nextSettings?: Settings;
   days: Record<string, Day>;
   projects: Project[];
+  /** How many new words she wants a day; she sets it herself. */
+  vocab?: { perDay: number };
   /** Dollar rewards granted separately from points and the penalty fund. */
   rewardBalance?: number;
   redemptions: { id: string; at: string; amount: number }[];

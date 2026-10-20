@@ -18,6 +18,7 @@ import {
 import { applyAction, applyGrade, actionSchema } from "../src/lib/actions";
 import { DEFAULT_STUDY } from "../src/lib/study";
 import type { Day, GameState, Question, Settings } from "../src/lib/types";
+import { WORDS } from "../src/lib/words";
 import data from "../data/questions.json";
 const bank = data as Question[];
 const noon = (date: string) => `${date}T16:00:00Z`;
@@ -964,6 +965,112 @@ describe("mixed categories", () => {
     expect(fresh.days[fresh.startedOn].settings.mix).toEqual(
       DEFAULT_SETTINGS.mix,
     );
+  });
+});
+describe("daily words", () => {
+  const vocab = (
+    s: GameState,
+    date: string,
+    marks: Record<string, "know" | "learn">,
+  ) =>
+    applyAction(
+      s,
+      { type: "vocab", id: crypto.randomUUID(), date, marks },
+      "player",
+      "p",
+      noon(date),
+      bank,
+    );
+  it("gives the most frequent words first, brings back the ones she is learning, and repeats unmarked ones", () => {
+    const s = game(),
+      first = s.days[s.startedOn].vocab!;
+    expect(first.review).toEqual([]);
+    expect(first.fresh).toEqual(WORDS.slice(0, 20).map(([w]) => w));
+    vocab(s, s.startedOn, {
+      ...Object.fromEntries(first.fresh.slice(0, 15).map((w) => [w, "know"])),
+      [first.fresh[15]]: "learn",
+    });
+    const next = addDays(s.startedOn, 1);
+    advance(s, noon(next), bank);
+    const second = s.days[next].vocab!;
+    expect(second.review).toEqual([first.fresh[15]]);
+    // The four she never marked come first again, then words she has not seen.
+    expect(second.fresh.slice(0, 4)).toEqual(first.fresh.slice(16));
+    expect(second.fresh).toHaveLength(20);
+    expect(second.fresh).not.toContain(first.fresh[0]);
+    vocab(s, next, { [first.fresh[15]]: "know" });
+    advance(s, noon(addDays(next, 1)), bank);
+    expect(s.days[addDays(next, 1)].vocab!.review).toEqual([]);
+  });
+  it("lets her change the daily amount, keeping words she already marked", () => {
+    const s = game(),
+      day = s.days[s.startedOn],
+      now = noon(s.startedOn);
+    vocab(s, s.startedOn, { [day.vocab!.fresh[7]]: "know" });
+    applyAction(
+      s,
+      { type: "vocabPace", id: crypto.randomUUID(), perDay: 5 },
+      "player",
+      "p",
+      now,
+      bank,
+    );
+    // The marked eighth word stays; the rest is refilled from the top of the list.
+    expect(day.vocab!.fresh).toEqual([
+      WORDS[7][0],
+      ...WORDS.slice(0, 4).map(([w]) => w),
+    ]);
+    applyAction(
+      s,
+      { type: "vocabPace", id: crypto.randomUUID(), perDay: 30 },
+      "player",
+      "p",
+      now,
+      bank,
+    );
+    expect(day.vocab!.fresh).toHaveLength(30);
+    expect(s.vocab).toEqual({ perDay: 30 });
+    advance(s, noon(addDays(s.startedOn, 1)), bank);
+    expect(s.days[addDays(s.startedOn, 1)].vocab!.fresh).toHaveLength(30);
+    expect(() =>
+      applyAction(
+        s,
+        { type: "vocabPace", id: crypto.randomUUID(), perDay: 30 },
+        "referee",
+        "r",
+        now,
+        bank,
+      ),
+    ).toThrow("权限");
+    expect(() =>
+      vocab(s, addDays(s.startedOn, 1), { notaword: "know" }),
+    ).toThrow("不在今天");
+  });
+  it("pays a bonus only on a met day, and never touches the streak", () => {
+    const s = game(),
+      day = s.days[s.startedOn],
+      now = noon(s.startedOn);
+    vocab(
+      s,
+      s.startedOn,
+      Object.fromEntries(day.vocab!.fresh.map((w) => [w, "know"])),
+    );
+    expect(evaluate(s, now)).toMatchObject({ points: 0, streak: 0 });
+    finish(day);
+    expect(evaluate(s, now)).toMatchObject({ points: 125, streak: 1 });
+    expect(evaluate(s, now).days[0].status).toBe("gold");
+  });
+  it("arrives on older camps' open day without changing closed days", () => {
+    const s = oneQuestionGame();
+    runDays(s, 2);
+    delete s.vocab;
+    for (const d of Object.values(s.days)) delete d.vocab;
+    const before = evaluate(s, noon(addDays(s.startedOn, 1)));
+    advance(s, noon(addDays(s.startedOn, 1)), bank);
+    expect(s.vocab).toEqual({ perDay: 20 });
+    expect(s.days[s.startedOn].vocab).toBeUndefined();
+    expect(s.days[addDays(s.startedOn, 1)].vocab!.fresh).toHaveLength(20);
+    expect(evaluate(s, noon(addDays(s.startedOn, 1)))).toEqual(before);
   });
 });
 describe("days off", () => {

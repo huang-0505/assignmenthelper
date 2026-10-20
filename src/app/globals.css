@@ -1002,6 +1002,133 @@ main#main {
   padding: 23px;
   margin-bottom: 22px;
 }
+.vocab-section {
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 15px;
+  padding: 23px;
+  margin-bottom: 22px;
+}
+.vocab-section .interview-top {
+  margin-bottom: 14px;
+}
+.vocab-section .task-status {
+  margin-left: 8px;
+}
+.vocab-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.vocab-pace {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.vocab-pace .icon-button {
+  min-width: 40px;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: #5273c4;
+}
+.vocab-pace .icon-button:disabled {
+  opacity: 0.4;
+}
+.vocab-pace strong {
+  min-width: 3ch;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--ink);
+}
+.vocab-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr));
+  gap: 8px;
+}
+.vocab-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.vocab-list li.know {
+  background: #f0faf5;
+  border-color: #cae9dc;
+}
+.vocab-list li.learn {
+  background: #fff7ec;
+  border-color: #f1dcb8;
+}
+.vocab-word {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+}
+.vocab-word strong {
+  font-size: 15px;
+  overflow-wrap: break-word;
+}
+.vocab-word small {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.vocab-lookup {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 40px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--blue);
+  white-space: nowrap;
+}
+.vocab-choice {
+  display: flex;
+  gap: 4px;
+}
+.vocab-choice button {
+  min-height: 40px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.vocab-choice button.know {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+.vocab-choice button.learn {
+  background: #d9822b;
+  border-color: #d9822b;
+  color: #fff;
+}
+.vocab-footer {
+  margin-top: 14px;
+}
+.grading-note a {
+  color: var(--blue);
+}
 .interview-top {
   display: flex;
   align-items: center;

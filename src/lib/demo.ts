@@ -66,6 +66,9 @@ function seed(now: string): GameState {
           status: "graded",
         },
       });
+    // Two words a day stay "still learning", so the next day shows some review.
+    for (const [i, word] of (day.vocab?.fresh ?? []).entries())
+      day.vocab!.marks[word] = i < 2 ? "learn" : "know";
   }
   advance(state, now, bank);
   state.days[today].applications = 2;

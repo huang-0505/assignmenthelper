@@ -10,15 +10,19 @@ import {
   ArrowUpRight,
   BookOpen,
   Check,
+  CheckCheck,
   ChevronDown,
   ChevronRight,
   Clock3,
   Code2,
   Flag,
   Flame,
+  ExternalLink,
   Gift,
+  Languages,
   Lightbulb,
   LockKeyhole,
+  Minus,
   Plus,
   RotateCcw,
   Send,
@@ -39,10 +43,13 @@ import {
   itemScore,
   requirements,
   retrySource,
+  vocabMarks,
+  VOCAB_PER_DAY,
   weekKey,
   weekTotals,
 } from "@/lib/engine";
-import type { Day, InterviewItem } from "@/lib/types";
+import type { Day, InterviewItem, VocabMark } from "@/lib/types";
+import { POS, WORDS, WORDS_SOURCE } from "@/lib/words";
 import { useGame } from "./provider";
 import { DoorWindow } from "./study-parts";
 import { Modal, Progress, SectionHeading, Status } from "./ui";
@@ -194,6 +201,7 @@ export function Today() {
             </div>
           </section>
           <Interview key={`answer-${today}`} day={day} />
+          {day.vocab && <Vocab key={`vocab-${today}`} day={day} />}
           <div className="day-bottom">
             <Status status={current.status} />
             <span>
@@ -866,6 +874,180 @@ function QuestionCard({
       )}
     </div>
   );
+}
+const POS_OF = new Map(WORDS.map(([word, pos]) => [word, pos]));
+/** The daily words: she marks each as known or still learning, then saves them together. */
+function Vocab({ day }: { day: Day }) {
+  const { act, busy, snapshot } = useGame(),
+    vocab = day.vocab!,
+    perDay = snapshot.state.vocab?.perDay ?? VOCAB_PER_DAY;
+  const [raw, setRaw] = useDraft(`oq-${snapshot.mode}-vocab-${day.date}`, "{}");
+  const words = [...vocab.review, ...vocab.fresh],
+    // Only words still on today's list: a smaller daily amount can drop unsaved ones.
+    pending = Object.fromEntries(
+      Object.entries(parseMarks(raw)).filter(([word]) => words.includes(word)),
+    ),
+    marks = { ...vocab.marks, ...pending },
+    marked = words.filter((word) => marks[word]).length,
+    changed = Object.keys(pending).filter(
+      (word) => pending[word] !== vocab.marks[word],
+    ).length,
+    saved = words.length > 0 && words.every((word) => vocab.marks[word]);
+  const [open, setOpen] = useState(!saved);
+  const known = [...vocabMarks(snapshot.state).values()].filter(
+    (mark) => mark === "know",
+  ).length;
+  const mark = (next: Record<string, VocabMark>) =>
+    setRaw(JSON.stringify({ ...pending, ...next }));
+  async function save() {
+    if (await act({ type: "vocab", date: day.date, marks: pending }))
+      setRaw("{}");
+  }
+  return (
+    <section className={`vocab-section ${saved ? "task-complete" : ""}`}>
+      <div className="interview-top">
+        <span className="task-icon green">
+          <Languages size={22} />
+        </span>
+        <div>
+          <h2>每日单词</h2>
+          <p>
+            已认识 {known.toLocaleString()} / {WORDS.length.toLocaleString()}{" "}
+            个常用词 · 全部标完 +{day.settings.bonusPoints} 积分
+          </p>
+        </div>
+        <span className="bonus-tag">加分项</span>
+        <span className="task-status">
+          {saved ? (
+            <>
+              <Check size={14} /> 已完成
+            </>
+          ) : (
+            `${marked} / ${words.length}`
+          )}
+        </span>
+      </div>
+      <div className="vocab-controls">
+        <div className="vocab-pace" aria-label="每天新词数量">
+          <span>每天新词</span>
+          <button
+            className="icon-button"
+            aria-label="少一点"
+            disabled={busy || perDay <= 5}
+            onClick={() => act({ type: "vocabPace", perDay: perDay - 5 })}
+          >
+            <Minus size={15} />
+          </button>
+          <strong>{perDay}</strong>
+          <button
+            className="icon-button"
+            aria-label="多一点"
+            disabled={busy || perDay >= 100}
+            onClick={() => act({ type: "vocabPace", perDay: perDay + 5 })}
+          >
+            <Plus size={15} />
+          </button>
+          <span>个</span>
+        </div>
+        <button
+          className="text-button"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? "收起单词" : "展开单词"}{" "}
+          <ChevronDown size={14} className={open ? "rotated" : ""} />
+        </button>
+      </div>
+      {open && (
+        <>
+          {words.length === 0 ? (
+            <p className="muted">这份词表已经全部学完了，太厉害了！</p>
+          ) : (
+            <ul className="vocab-list">
+              {words.map((word) => (
+                <li
+                  key={word}
+                  className={marks[word] ? `marked ${marks[word]}` : ""}
+                >
+                  <span className="vocab-word" lang="en">
+                    <strong>{word}</strong>
+                    <small>
+                      {[...(POS_OF.get(word) ?? "")]
+                        .map((code) => POS[code] ?? code)
+                        .join(" ")}
+                    </small>
+                    {vocab.review.includes(word) && (
+                      <span className="retry-chip">复习</span>
+                    )}
+                  </span>
+                  <a
+                    className="vocab-lookup"
+                    href={`https://dict.youdao.com/result?word=${encodeURIComponent(word)}&lang=en`}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`在有道词典查 ${word}`}
+                  >
+                    查 <ExternalLink size={12} />
+                  </a>
+                  <span className="vocab-choice">
+                    {(["know", "learn"] as const).map((choice) => (
+                      <button
+                        key={choice}
+                        aria-pressed={marks[word] === choice}
+                        className={marks[word] === choice ? choice : ""}
+                        onClick={() => mark({ [word]: choice })}
+                      >
+                        {choice === "know" ? "认识" : "不熟"}
+                      </button>
+                    ))}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="answer-footer vocab-footer">
+            <button
+              className="text-button"
+              disabled={words.every((word) => marks[word])}
+              onClick={() =>
+                mark(
+                  Object.fromEntries(
+                    words
+                      .filter((word) => !marks[word])
+                      .map((word) => [word, "know"]),
+                  ),
+                )
+              }
+            >
+              <CheckCheck size={15} /> 剩下的都认识
+            </button>
+            <button
+              className="button primary"
+              disabled={busy || !changed}
+              onClick={save}
+            >
+              {changed ? `保存 ${changed} 个` : "已保存"}
+            </button>
+          </div>
+          <p className="grading-note">
+            不熟的词明天会再出现，直到你点「认识」。标记先存在本机，点保存才记进训练记录。词表：COCA
+            前 5000 高频词，来源{" "}
+            <a href={WORDS_SOURCE} target="_blank" rel="noreferrer">
+              wordfrequency.info
+            </a>
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+function parseMarks(raw: string): Record<string, VocabMark> {
+  try {
+    const value = JSON.parse(raw);
+    return value && typeof value === "object" ? value : {};
+  } catch {
+    return {};
+  }
 }
 function StudyCard() {
   const { snapshot } = useGame(),

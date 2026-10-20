@@ -39,9 +39,11 @@ import {
   requirements,
   RETRY_DAYS,
   retryQueue,
+  vocabDone,
 } from "@/lib/engine";
 import type {
   Audit,
+  Day,
   DayStatus,
   Project,
   Question,
@@ -368,6 +370,7 @@ export function DayDetail({
           )}
         </div>
       ))}
+      {day.vocab && <VocabSummary vocab={day.vocab} />}
       {day.bq && (
         <div className="detail-bq">
           <h3>BQ · {day.bq.stage === 1 ? "STAR 草稿" : "口述练习"}</h3>
@@ -425,6 +428,25 @@ export function DayDetail({
         </div>
       )}
     </Modal>
+  );
+}
+function VocabSummary({ vocab }: { vocab: NonNullable<Day["vocab"]> }) {
+  const words = [...vocab.review, ...vocab.fresh],
+    learning = words.filter((word) => vocab.marks[word] === "learn");
+  return (
+    <div className="detail-bq">
+      <h3>每日单词</h3>
+      <p className="answer-text">
+        认识 {words.filter((word) => vocab.marks[word] === "know").length} 个 ·
+        不熟 {learning.length} 个 · 没标{" "}
+        {words.filter((word) => !vocab.marks[word]).length} 个
+      </p>
+      {learning.length > 0 && (
+        <p className="muted" lang="en">
+          不熟：{learning.join(", ")}
+        </p>
+      )}
+    </div>
   );
 }
 function ReviewForm({
@@ -1241,6 +1263,16 @@ function TodayLive({ open }: { open: (date: string) => void }) {
             core: core.interview,
           },
         ]),
+    ...(day.vocab
+      ? [
+          {
+            label: "每日单词",
+            value: `${Object.keys(day.vocab.marks).length} / ${day.vocab.review.length + day.vocab.fresh.length} 个`,
+            done: vocabDone(day),
+            core: false,
+          },
+        ]
+      : []),
     ...(day.bq
       ? [
           {
