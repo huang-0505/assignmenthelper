@@ -1061,7 +1061,13 @@ describe("daily words", () => {
     expect(evaluate(s, now).days[0].status).toBe("gold");
   });
   it("mixes every theme into each day, with a meaning and one highlight per word", () => {
-    expect(new Set(WORDS.slice(0, 4).map((e) => e.tag)).size).toBe(4);
+    expect(new Set(WORDS.slice(0, 20).map((e) => e.tag))).toEqual(
+      new Set(["职场", "面试", "生活", "地道表达"]),
+    );
+    // The Business Service List words are the main body.
+    expect(WORDS.filter((e) => e.tag === "职场").length).toBeGreaterThan(
+      WORDS.length / 2,
+    );
     expect(ENTRY.size).toBe(WORDS.length);
     for (const entry of WORDS) {
       expect(entry.zh).not.toBe("");
@@ -1083,6 +1089,21 @@ describe("daily words", () => {
     };
     advance(s, noon(next), bank);
     expect(s.days[next].vocab!.review).toEqual([]);
+  });
+  it("keeps the words she already marked when the open day's list is swapped", () => {
+    const s = game(),
+      day = s.days[s.startedOn],
+      kept = WORDS[5].word;
+    day.vocab = {
+      review: [],
+      fresh: ["be", kept, "have"],
+      marks: { be: "know", [kept]: "learn" },
+    };
+    advance(s, noon(s.startedOn), bank);
+    expect(day.vocab.fresh[0]).toBe(kept);
+    expect(day.vocab.fresh).toHaveLength(20);
+    expect(day.vocab.fresh).not.toContain("be");
+    expect(day.vocab.marks).toEqual({ [kept]: "learn" });
   });
   it("keeps an open day whose old words are already finished", () => {
     const s = game(),

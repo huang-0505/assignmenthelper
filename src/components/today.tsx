@@ -49,7 +49,7 @@ import {
   weekTotals,
 } from "@/lib/engine";
 import type { Day, InterviewItem, VocabMark } from "@/lib/types";
-import { ENTRY, WORDS } from "@/lib/words";
+import { ENTRY, WORDS, WORDS_SOURCE } from "@/lib/words";
 import { useGame } from "./provider";
 import { DoorWindow } from "./study-parts";
 import { Modal, Progress, SectionHeading, Status } from "./ui";
@@ -918,7 +918,7 @@ function Vocab({ day }: { day: Day }) {
           <h2>每日单词</h2>
           <p>
             已认识 {known.toLocaleString()} / {WORDS.length.toLocaleString()}{" "}
-            个面试和生活词汇 · 全部标完 +{day.settings.bonusPoints} 积分
+            个职场、面试和生活词汇 · 全部标完 +{day.settings.bonusPoints} 积分
           </p>
         </div>
         <span className="bonus-tag">加分项</span>
@@ -1049,7 +1049,12 @@ function Vocab({ day }: { day: Day }) {
             </button>
           </div>
           <p className="grading-note">
-            不熟的词明天会再出现，直到你点「认识」。标记先存在本机，点保存才记进训练记录。词表：面试、职场、美国日常生活和地道表达，每天四类轮着来。
+            不熟的词明天会再出现，直到你点「认识」。标记先存在本机，点保存才记进训练记录。职场单词选自{" "}
+            <a href={WORDS_SOURCE} target="_blank" rel="noreferrer">
+              Business Service List 1.2
+            </a>
+            （Browne &amp; Culligan，CC BY-SA
+            4.0），职场短语、面试、生活和地道表达为自编。
           </p>
         </>
       )}

@@ -9,7 +9,7 @@ export type WordEntry = {
   phrase: string;
   /** Example sentence with the word in [brackets]. */
   example: string;
-  /** 面试, 生活, 职场 or 地道表达. */
+  /** 职场, 面试, 生活 or 地道表达. */
   tag: string;
 };
 
@@ -24,11 +24,16 @@ const themes = data.themes.map(({ tag, words }) =>
   })),
 );
 /**
- * Interview, workplace and everyday-life vocabulary beyond the basics. Themes take turns, so each
- * day's words mix all of them.
+ * Interview, workplace and everyday-life vocabulary beyond the basics. Each theme is spread evenly
+ * over the whole list, so every day mixes them in the same proportions; the workplace words from the
+ * Business Service List are the largest share.
  */
-export const WORDS: WordEntry[] = Array.from(
-  { length: Math.max(...themes.map((theme) => theme.length)) },
-  (_, i) => themes.flatMap((theme) => theme[i] ?? []),
-).flat();
+export const WORDS: WordEntry[] = themes
+  .flatMap((theme, t) =>
+    theme.map((entry, i) => ({ entry, at: (i + 0.5) / theme.length, t })),
+  )
+  .sort((a, b) => a.at - b.at || a.t - b.t)
+  .map(({ entry }) => entry);
+export const WORDS_SOURCE =
+  "https://www.newgeneralservicelist.com/business-service-list";
 export const ENTRY = new Map(WORDS.map((entry) => [entry.word, entry]));

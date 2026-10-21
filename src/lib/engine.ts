@@ -603,15 +603,28 @@ export function advance(
     if (Temporal.Instant.compare(now, day.closesAt) < 0)
       day.vocab = vocabFor(state, day.date);
   }
-  // The list changed from COCA's most frequent words to interview and everyday-life vocabulary.
-  // An open day she has not finished swaps its old words for new ones; a finished one keeps its bonus.
+  // When words leave the list, an open day she has not finished swaps them for new ones and keeps
+  // the words she has already marked; a finished day keeps its words and its bonus.
   if (
     day.vocab &&
     Temporal.Instant.compare(now, day.closesAt) < 0 &&
     !vocabDone(day) &&
     [...day.vocab.review, ...day.vocab.fresh].some((word) => !ENTRY.has(word))
-  )
-    day.vocab = vocabFor(state, day.date);
+  ) {
+    const { marks } = day.vocab,
+      next = vocabFor(state, day.date);
+    next.fresh = nextWords(
+      vocabMarks(state, day.date),
+      next.review,
+      day.vocab.fresh.filter((word) => ENTRY.has(word) && marks[word]),
+      state.vocab?.perDay ?? VOCAB_PER_DAY,
+    );
+    const words = new Set([...next.review, ...next.fresh]);
+    next.marks = Object.fromEntries(
+      Object.entries(marks).filter(([word]) => words.has(word)),
+    );
+    day.vocab = next;
+  }
   let count = 0;
   while (Temporal.Instant.compare(now, day.closesAt) >= 0) {
     if (++count > 3660) throw new Error("超过十年的数据需要管理员迁移");
