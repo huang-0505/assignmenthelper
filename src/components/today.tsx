@@ -49,7 +49,7 @@ import {
   weekTotals,
 } from "@/lib/engine";
 import type { Day, InterviewItem, VocabMark } from "@/lib/types";
-import { POS, WORDS, WORDS_SOURCE } from "@/lib/words";
+import { ENTRY, WORDS } from "@/lib/words";
 import { useGame } from "./provider";
 import { DoorWindow } from "./study-parts";
 import { Modal, Progress, SectionHeading, Status } from "./ui";
@@ -875,7 +875,12 @@ function QuestionCard({
     </div>
   );
 }
-const POS_OF = new Map(WORDS.map(([word, pos]) => [word, pos]));
+/** The example sentence, with the word in its [brackets] highlighted. */
+function Example({ text }: { text: string }) {
+  return text
+    .split(/\[(.+?)\]/)
+    .map((part, i) => (i % 2 ? <mark key={i}>{part}</mark> : part));
+}
 /** The daily words: she marks each as known or still learning, then saves them together. */
 function Vocab({ day }: { day: Day }) {
   const { act, busy, snapshot } = useGame(),
@@ -894,8 +899,8 @@ function Vocab({ day }: { day: Day }) {
     ).length,
     saved = words.length > 0 && words.every((word) => vocab.marks[word]);
   const [open, setOpen] = useState(!saved);
-  const known = [...vocabMarks(snapshot.state).values()].filter(
-    (mark) => mark === "know",
+  const known = [...vocabMarks(snapshot.state)].filter(
+    ([word, mark]) => mark === "know" && ENTRY.has(word),
   ).length;
   const mark = (next: Record<string, VocabMark>) =>
     setRaw(JSON.stringify({ ...pending, ...next }));
@@ -913,7 +918,7 @@ function Vocab({ day }: { day: Day }) {
           <h2>每日单词</h2>
           <p>
             已认识 {known.toLocaleString()} / {WORDS.length.toLocaleString()}{" "}
-            个常用词 · 全部标完 +{day.settings.bonusPoints} 积分
+            个面试和生活词汇 · 全部标完 +{day.settings.bonusPoints} 积分
           </p>
         </div>
         <span className="bonus-tag">加分项</span>
@@ -964,45 +969,59 @@ function Vocab({ day }: { day: Day }) {
             <p className="muted">这份词表已经全部学完了，太厉害了！</p>
           ) : (
             <ul className="vocab-list">
-              {words.map((word) => (
-                <li
-                  key={word}
-                  className={marks[word] ? `marked ${marks[word]}` : ""}
-                >
-                  <span className="vocab-word" lang="en">
-                    <strong>{word}</strong>
-                    <small>
-                      {[...(POS_OF.get(word) ?? "")]
-                        .map((code) => POS[code] ?? code)
-                        .join(" ")}
-                    </small>
-                    {vocab.review.includes(word) && (
-                      <span className="retry-chip">复习</span>
-                    )}
-                  </span>
-                  <a
-                    className="vocab-lookup"
-                    href={`https://dict.youdao.com/result?word=${encodeURIComponent(word)}&lang=en`}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label={`在有道词典查 ${word}`}
+              {words.map((word) => {
+                const entry = ENTRY.get(word);
+                return (
+                  <li
+                    key={word}
+                    className={marks[word] ? `marked ${marks[word]}` : ""}
                   >
-                    查 <ExternalLink size={12} />
-                  </a>
-                  <span className="vocab-choice">
-                    {(["know", "learn"] as const).map((choice) => (
-                      <button
-                        key={choice}
-                        aria-pressed={marks[word] === choice}
-                        className={marks[word] === choice ? choice : ""}
-                        onClick={() => mark({ [word]: choice })}
-                      >
-                        {choice === "know" ? "认识" : "不熟"}
-                      </button>
-                    ))}
-                  </span>
-                </li>
-              ))}
+                    <span className="vocab-word">
+                      <strong lang="en">{word}</strong>
+                      {entry && <small>{entry.pos}</small>}
+                      {entry && <span className="vocab-tag">{entry.tag}</span>}
+                      {vocab.review.includes(word) && (
+                        <span className="retry-chip">复习</span>
+                      )}
+                    </span>
+                    {entry && (
+                      <div className="vocab-detail">
+                        <p className="vocab-zh">{entry.zh}</p>
+                        {entry.phrase && (
+                          <p className="vocab-phrase">
+                            <span>搭配</span>
+                            <i lang="en">{entry.phrase}</i>
+                          </p>
+                        )}
+                        <p className="vocab-example" lang="en">
+                          <Example text={entry.example} />
+                        </p>
+                      </div>
+                    )}
+                    <a
+                      className="vocab-lookup"
+                      href={`https://dict.youdao.com/result?word=${encodeURIComponent(word)}&lang=en`}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`在有道词典查 ${word}`}
+                    >
+                      查 <ExternalLink size={12} />
+                    </a>
+                    <span className="vocab-choice">
+                      {(["know", "learn"] as const).map((choice) => (
+                        <button
+                          key={choice}
+                          aria-pressed={marks[word] === choice}
+                          className={marks[word] === choice ? choice : ""}
+                          onClick={() => mark({ [word]: choice })}
+                        >
+                          {choice === "know" ? "认识" : "不熟"}
+                        </button>
+                      ))}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
           <div className="answer-footer vocab-footer">
@@ -1030,11 +1049,7 @@ function Vocab({ day }: { day: Day }) {
             </button>
           </div>
           <p className="grading-note">
-            不熟的词明天会再出现，直到你点「认识」。标记先存在本机，点保存才记进训练记录。词表：COCA
-            前 5000 高频词，来源{" "}
-            <a href={WORDS_SOURCE} target="_blank" rel="noreferrer">
-              wordfrequency.info
-            </a>
+            不熟的词明天会再出现，直到你点「认识」。标记先存在本机，点保存才记进训练记录。词表：面试、职场、美国日常生活和地道表达，每天四类轮着来。
           </p>
         </>
       )}

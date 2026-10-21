@@ -18,7 +18,7 @@ import {
 import { applyAction, applyGrade, actionSchema } from "../src/lib/actions";
 import { DEFAULT_STUDY } from "../src/lib/study";
 import type { Day, GameState, Question, Settings } from "../src/lib/types";
-import { WORDS } from "../src/lib/words";
+import { ENTRY, WORDS } from "../src/lib/words";
 import data from "../data/questions.json";
 const bank = data as Question[];
 const noon = (date: string) => `${date}T16:00:00Z`;
@@ -981,11 +981,11 @@ describe("daily words", () => {
       noon(date),
       bank,
     );
-  it("gives the most frequent words first, brings back the ones she is learning, and repeats unmarked ones", () => {
+  it("gives words in list order, brings back the ones she is learning, and repeats unmarked ones", () => {
     const s = game(),
       first = s.days[s.startedOn].vocab!;
     expect(first.review).toEqual([]);
-    expect(first.fresh).toEqual(WORDS.slice(0, 20).map(([w]) => w));
+    expect(first.fresh).toEqual(WORDS.slice(0, 20).map((e) => e.word));
     vocab(s, s.startedOn, {
       ...Object.fromEntries(first.fresh.slice(0, 15).map((w) => [w, "know"])),
       [first.fresh[15]]: "learn",
@@ -1017,8 +1017,8 @@ describe("daily words", () => {
     );
     // The marked eighth word stays; the rest is refilled from the top of the list.
     expect(day.vocab!.fresh).toEqual([
-      WORDS[7][0],
-      ...WORDS.slice(0, 4).map(([w]) => w),
+      WORDS[7].word,
+      ...WORDS.slice(0, 4).map((e) => e.word),
     ]);
     applyAction(
       s,
@@ -1059,6 +1059,37 @@ describe("daily words", () => {
     finish(day);
     expect(evaluate(s, now)).toMatchObject({ points: 125, streak: 1 });
     expect(evaluate(s, now).days[0].status).toBe("gold");
+  });
+  it("mixes every theme into each day, with a meaning and one highlight per word", () => {
+    expect(new Set(WORDS.slice(0, 4).map((e) => e.tag)).size).toBe(4);
+    expect(ENTRY.size).toBe(WORDS.length);
+    for (const entry of WORDS) {
+      expect(entry.zh).not.toBe("");
+      expect(entry.example.match(/\[[^\]]+\]/g)).toHaveLength(1);
+    }
+  });
+  it("swaps old-list words on an unfinished open day, and never brings them back", () => {
+    const s = game(),
+      day = s.days[s.startedOn],
+      next = addDays(s.startedOn, 1);
+    day.vocab = { review: [], fresh: ["be", "have"], marks: { be: "learn" } };
+    advance(s, noon(s.startedOn), bank);
+    expect(day.vocab.fresh).toEqual(WORDS.slice(0, 20).map((e) => e.word));
+    // An old word she was still learning stays in history but is not reviewed.
+    s.days[addDays(s.startedOn, -1)] = {
+      ...structuredClone(day),
+      date: addDays(s.startedOn, -1),
+      vocab: { review: [], fresh: ["have"], marks: { have: "learn" } },
+    };
+    advance(s, noon(next), bank);
+    expect(s.days[next].vocab!.review).toEqual([]);
+  });
+  it("keeps an open day whose old words are already finished", () => {
+    const s = game(),
+      day = s.days[s.startedOn];
+    day.vocab = { review: [], fresh: ["be"], marks: { be: "know" } };
+    advance(s, noon(s.startedOn), bank);
+    expect(day.vocab.fresh).toEqual(["be"]);
   });
   it("arrives on older camps' open day without changing closed days", () => {
     const s = oneQuestionGame();

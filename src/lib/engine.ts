@@ -1,6 +1,6 @@
 import { Temporal } from "@js-temporal/polyfill";
 import { DEFAULT_STUDY, studyRewards, type StudyOutcome } from "./study";
-import { WORDS } from "./words";
+import { ENTRY, WORDS } from "./words";
 import type {
   Answer,
   BqTask,
@@ -417,7 +417,7 @@ export function vocabMarks(
         marks.set(word, mark);
   return marks;
 }
-/** `keep`, then the most frequent words she has not marked yet, up to `count`. */
+/** `keep`, then the next words on the list she has not marked yet, up to `count`. */
 function nextWords(
   marks: Map<string, VocabMark>,
   review: string[],
@@ -426,18 +426,21 @@ function nextWords(
 ): string[] {
   const taken = new Set([...review, ...keep]),
     words = [...keep];
-  for (const [word] of WORDS) {
+  for (const { word } of WORDS) {
     if (words.length >= count) break;
     if (!marks.has(word) && !taken.has(word)) words.push(word);
   }
   return words;
 }
-/** Words she is still learning come back each day until she knows them; unmarked words come again. */
+/**
+ * Words she is still learning come back each day until she knows them; unmarked words come again.
+ * Words that have left the list do not come back.
+ */
 function vocabFor(state: GameState, date: string): VocabDay {
   const marks = vocabMarks(state, date),
     perDay = state.vocab?.perDay ?? VOCAB_PER_DAY;
   const review = [...marks]
-    .filter(([, mark]) => mark === "learn")
+    .filter(([word, mark]) => mark === "learn" && ENTRY.has(word))
     .map(([word]) => word)
     .slice(0, perDay);
   return { review, fresh: nextWords(marks, review, [], perDay), marks: {} };
@@ -600,6 +603,15 @@ export function advance(
     if (Temporal.Instant.compare(now, day.closesAt) < 0)
       day.vocab = vocabFor(state, day.date);
   }
+  // The list changed from COCA's most frequent words to interview and everyday-life vocabulary.
+  // An open day she has not finished swaps its old words for new ones; a finished one keeps its bonus.
+  if (
+    day.vocab &&
+    Temporal.Instant.compare(now, day.closesAt) < 0 &&
+    !vocabDone(day) &&
+    [...day.vocab.review, ...day.vocab.fresh].some((word) => !ENTRY.has(word))
+  )
+    day.vocab = vocabFor(state, day.date);
   let count = 0;
   while (Temporal.Instant.compare(now, day.closesAt) >= 0) {
     if (++count > 3660) throw new Error("超过十年的数据需要管理员迁移");
